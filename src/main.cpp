@@ -40,9 +40,12 @@ int main()
 
     // --- adding variables and objects and applying functions starts here ---
     
-    // servo object
-    Servo servo_D0(PA_3);
-
+    // servo object and calibration
+    Servo servo_D0(PB_2);
+    float servo_D0_ang_min = 0.020f; 
+    float servo_D0_ang_max = 0.120f; 
+    servo_D0.calibratePulseMinMax(servo_D0_ang_min, servo_D0_ang_max);
+    
     // servo variables
     float servo_input = 0.0f;
     int servo_counter = 0;
@@ -75,7 +78,7 @@ int main()
             if ((servo_input < 1.0f) &&                     // constrain servo_input to be < 1.0f
                 (servo_counter % loops_per_second == 0) &&  // true if servo_counter is a multiple of loops_per_second
                 (servo_counter != 0))                       // avoid servo_counter = 0
-                servo_input += 0.0005f;
+                servo_input += 0.005f;
             servo_counter++;
 
             // visual feedback that the main task is executed, setting this once would actually be enough

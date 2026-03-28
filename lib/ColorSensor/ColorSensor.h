@@ -126,7 +126,7 @@ public:
      * These references are installation-specific (sensor, LED, distance, surface).
      * Update them if you change any of those conditions.
      */
-    void setCalibration();
+    void setCalibration(const float black[4], const float white[4]);
     /** @brief Turn the illumination LED on/off (if wired). */
     void switchLed(ledstate_t led_state);
 

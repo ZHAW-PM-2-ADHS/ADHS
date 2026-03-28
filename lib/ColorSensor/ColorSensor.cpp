@@ -23,7 +23,9 @@ ColorSensor::ColorSensor(PinName pin) : m_PwmIn(pin),
 {
     setColor(WHITE);
     setFrequency(FREQ_002);
-    setCalibration();
+    const float default_black[4] = {381.5f, 353.5f, 409.0f, 1230.0f};
+    const float default_white[4] = {714.0f, 679.0f, 762.0f, 2230.0f};
+    setCalibration(default_black, default_white);
 
     // start thread
     m_Thread.start(callback(this, &ColorSensor::threadTask));
@@ -48,7 +50,9 @@ ColorSensor::ColorSensor(PinName pin, PinName led, PinName s0, PinName s1, PinNa
 {
     setColor(WHITE);
     setFrequency(FREQ_002);
-    setCalibration();
+    const float default_black[4] = {381.5f, 353.5f, 409.0f, 1230.0f};
+    const float default_white[4] = {714.0f, 679.0f, 762.0f, 2230.0f};
+    setCalibration(default_black, default_white);
 
     // start thread
     m_Thread.start(callback(this, &ColorSensor::threadTask));
@@ -102,40 +106,23 @@ void ColorSensor::reset()
  *
  * If you change any of those, remeasure and update the constants.
  */
-void ColorSensor::setCalibration()
+void ColorSensor::setCalibration(const float black[4], const float white[4])
 {
-    m_reference_black.red = 381.5f;     // measure the average raw frequency of the red channel with a black surface and store it as the black reference (dark level)
-    m_reference_black.green = 353.5f;   // measure the average raw frequency of the green channel with a black surface and store it as the black reference (dark level)
-    m_reference_black.blue = 409.0f;    // measure the average raw frequency of the blue channel with a black surface and store it as the black reference (dark level)
-    m_reference_black.white = 1230.0f;  // measure the average raw frequency of the clear channel with a black surface and store it as the black reference (dark level)
-
-    m_reference_white.red = 714.0f;     // measure the average raw frequency of the red channel with a white surface and store it as the white reference (normalization / white balance)
-    m_reference_white.green = 679.0f;   // measure the average raw frequency of the green channel with a white surface and store it as the white reference (normalization / white balance)
-    m_reference_white.blue = 762.0f;    // measure the average raw frequency of the blue channel with a white surface and store it as the white reference (normalization / white balance)
-    m_reference_white.white = 2230.0f;  // measure the average raw frequency of the clear channel with a white surface and store it as the white reference (normalization / white balance)
-
-    m_calib_black[0] = m_reference_black.red;
-    m_calib_black[1] = m_reference_black.green;
-    m_calib_black[2] = m_reference_black.blue;
-    m_calib_black[3] = m_reference_black.white;
-
-    m_calib_white[0] = m_reference_white.red;
-    m_calib_white[1] = m_reference_white.green;
-    m_calib_white[2] = m_reference_white.blue;
-    m_calib_white[3] = m_reference_white.white;
+    for (int i = 0; i < 4; i++) {
+        m_calib_black[i] = black[i];
+        m_calib_white[i] = white[i];
+    }
 
     const float eps = 1e-3f;
     float denom = (m_calib_white[3] - m_calib_black[3]);
     if (denom < eps) {
-        // invalid calibration
         return;
     }
 
     for (int i = 0; i < 3; i++) {
         m_ratio[i] = (m_calib_white[i] - m_calib_black[i]) / denom;
-        if (m_ratio[i] < eps) m_ratio[i] = eps; // avoid divide by zero later
+        if (m_ratio[i] < eps) m_ratio[i] = eps;
     }
-    
 }
 
 /**

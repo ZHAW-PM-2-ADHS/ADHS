@@ -5,9 +5,9 @@
 
 // drivers
 #include <Eigen/Dense>
-
 #include "DCMotor.h"
 #include "DebounceIn.h"
+#include "ColorSensor.h"
 #include "SensorBar.h"
 
 #define M_PIf 3.14159265358979323846f // pi
@@ -38,13 +38,18 @@ int main()
     // led on nucleo board
     DigitalOut user_led(LED1);
 
+    // additional led
+    // create DigitalOut object to command extra led, you need to add an additional resistor, e.g. 220...500 Ohm
+    // a led has an anode (+) and a cathode (-), the cathode needs to be connected to ground via the resistor
+    DigitalOut led1(PB_9);
+
     // --- adding variables and objects and applying functions starts here ---
 
     // create object to enable power electronics for the dc motors
     DigitalOut enable_motors(PB_ENABLE_DCMOTORS);
 
     constexpr float voltage_max = 12.0f; // maximum voltage of battery packs, adjust this to
-                                     // 6.0f V if you only use one battery pack
+    // 6.0f V if you only use one battery pack
 
     constexpr float b_wheel = 0.128f;  // wheelbase, distance from wheel to wheel in meters
     constexpr float bar_dist = 0.066f; // distance from wheel axis to leds on sensor bar / array in meters
@@ -79,6 +84,20 @@ int main()
     // const float wheel_vel_max = 2.0f * M_PIf * motor_M2.getMaxPhysicalVelocity();
     const float wheel_vel_max = 2.0f * M_PIf * motor_M2.getMaxPhysicalVelocity();
 
+    // color sensor
+    float color_raw_Hz[4] = {0.0f, 0.0f, 0.0f, 0.0f}; // define an array to store the measurement of the color sensor (in Hz)
+    float color_avg_Hz[4] = {0.0f, 0.0f, 0.0f, 0.0f}; // define an array to store the average measurement of the color sensor (in Hz)
+    float color_cal[4] = {0.0f, 0.0f, 0.0f, 0.0f}; // define an array to store the calibrated measurement of the color sensor
+
+    int color_num = 0.0f; // define a variable to store the color number, e.g. 0 for red, 1 for green, 2 for blue, 3 for clear
+    const char* color_string; // define a variable to store the color string, e.g. "red", "green", "blue", "clear"
+    ColorSensor Color_Sensor(PA_5); // create ColorSensor object, connect the frequency output pin of the sensor to PC_2
+
+    // Calibration Values
+    constexpr float black[4] = {381.5f, 353.5f, 409.0f, 1230.0f};
+    constexpr float white[4] = {714.0f, 679.0f, 762.0f, 2230.0f};
+
+    Color_Sensor.setCalibration(black, white);
     // start timer
     main_task_timer.start();
 
@@ -110,7 +129,6 @@ int main()
 
             // --- code that runs when the blue button was pressed goes here ---
 
-            // visual feedback that the main task is executed, setting this once would actually be enough
             enable_motors = 1;
 
             // only update sensor bar angle if an led is triggered
@@ -133,6 +151,32 @@ int main()
             motor_M1.setVelocity((wheel_speed(0) / (2.0f * M_PIf)) * sensor_direction);
             motor_M2.setVelocity(((wheel_speed(1) / (2.0f * M_PIf)) * -1) * sensor_direction);
 
+            // read the raw color measurement (in Hz) and store it in the defined variable
+            for (int i = 0; i < 4; i++) {
+                color_raw_Hz[i] = Color_Sensor.readRawColor()[i]; // read the raw color measurement in Hz
+            }
+
+            // read the average color measurement (in Hz) and store it in the defined variable
+            for (int i = 0; i < 4; i++) {
+                color_avg_Hz[i] = Color_Sensor.readColor()[i]; // read the average color measurement in Hz
+            }
+
+            // read the calibrated color measurement (unitless) and store it in the defined variable
+            for (int i = 0; i < 4; i++) {
+                color_cal[i] = Color_Sensor.readColorCalib()[i];
+            }
+
+            // read the classified color number and store it in the defined variable
+            color_num = Color_Sensor.getColor();
+
+            // read the classified color string and store it in the defined variable
+            color_string = Color_Sensor.getColorString(color_num);
+
+            printf("Color Raw Hz: %f %f %f %f\n", color_raw_Hz[0], color_raw_Hz[1], color_raw_Hz[2], color_raw_Hz[3]); // uncomment to print raw color measurement in Hz
+            printf("Color Avg Hz: %f %f %f %f\n", color_avg_Hz[0], color_avg_Hz[1], color_avg_Hz[2], color_avg_Hz[3]); // uncomment to print average color measurement in Hz (used for calibration and color classification)
+            printf("Color Num: %d Color %s\n", color_num, color_string); // uncomment to print classified color number and string. careful: filters delay also delays the color classification,
+                                                                         // so the first few readings after switching the color sensor might be wrong until the filters are settled
+
         } else {
             // the following code block gets executed only once
             if (do_reset_all_once) {
@@ -141,6 +185,15 @@ int main()
                 // --- variables and objects that should be reset go here ---
 
                 // reset variables and objects
+
+                for (int i = 0; i < 4; i++) {
+                    color_raw_Hz[i] = 0.0f;
+                    color_avg_Hz[i] = 0.0f;
+                    color_cal[i] = 0.0f;
+                }
+                color_num = 0;
+                color_string = nullptr;
+
                 enable_motors = 0;
             }
         }

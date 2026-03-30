@@ -35,13 +35,16 @@ void toggle_do_execute_main_fcn(); // custom function which is getting executed 
  */
 void driveRobot(DCMotor &motor_M1,
                 DCMotor &motor_M2,
-                SensorBar *&active_sensor_bar,
                 float &direction,
                 float &angle,
                 const Eigen::Matrix2f &Cwheel2robot,
                 float wheel_vel_max,
                 float r_wheel,
                 float speed);
+
+void stopRobot(DCMotor &motor_M1, DCMotor &motor_M2);
+
+int detectLine(SensorBar *&active_sensor_bar);
 
 void measureColor(
     ColorSensor &sensor, float raw[4], float avg[4], float cal[4], int &color_num, const char *&color_string);
@@ -76,7 +79,7 @@ int main()
     // 6.0f V if you only use one battery pack
 
     constexpr float b_wheel = 0.128f;         // wheelbase, distance from wheel to wheel in meters
-    constexpr float bar_dist = 0.066f;        // distance from wheel axis to leds on sensor bar / array in meters
+    constexpr float bar_dist = 0.07f;        // distance from wheel axis to leds on sensor bar / array in meters
     constexpr float d_wheel = 0.0596f;        // wheel diameter in meters
     constexpr float r_wheel = d_wheel / 2.0f; // wheel radius in meters
 
@@ -130,8 +133,11 @@ int main()
     // start timer
     main_task_timer.start();
 
-    // Counter to assess how long the program has been running
-    int counter = 0;
+    // counter for timing specific events
+    int cycle_counter = 0;
+
+    bool skipping_line_detection = false;
+    bool robot_stopped = false;
 
     // this loop will run forever
     while (true) {
@@ -143,7 +149,7 @@ int main()
         if (do_execute_main_task) {
             // This condition is only for demonstration purposes.
             // Switching the direction based on time does not make sense
-            if (counter % 500 == 0) {
+            /*if (counter % 500 == 0) {
                 sensor_direction = -sensor_direction;
 
                 if (active_sensor_bar == &sensor_bar_front) {
@@ -153,18 +159,49 @@ int main()
                 }
             }
             counter++;
+            */
 
-            enable_motors = 1;
+            if (!robot_stopped) {
+                if (active_sensor_bar->isAnyLedActive()) {
+                    int lineStatus = detectLine(active_sensor_bar);
+                    if (skipping_line_detection) {
+                        lineStatus = 0;
+                        cycle_counter++;
+                        if (cycle_counter > 25) {
+                            cycle_counter = 0;
+                            skipping_line_detection = false;
+                        }
+                    }
 
-            driveRobot(motor_M1,
-                       motor_M2,
-                       active_sensor_bar,
-                       sensor_direction,
-                       angle,
-                       Cwheel2robot,
-                       wheel_vel_max,
-                       r_wheel,
-                       speed);
+                    if (lineStatus == 0) {
+                        enable_motors = 1;
+                        angle = sensor_direction * active_sensor_bar->getAvgAngleRad();
+                        driveRobot(
+                            motor_M1, motor_M2, sensor_direction, angle, Cwheel2robot, wheel_vel_max, r_wheel, speed);
+                    } else if (lineStatus == 1) {
+                        stopRobot(motor_M1, motor_M2);
+                        robot_stopped = true;
+                    } else if (lineStatus == 2) {
+                        stopRobot(motor_M1, motor_M2);
+                        robot_stopped = true;
+                    }
+                }
+            } else {
+                int backsensorAVG = sensor_bar_back.getRaw();
+                if (backsensorAVG == 6 || backsensorAVG == 48) {
+                    robot_stopped = false;
+                } else {
+                    enable_motors = 0;
+                    cycle_counter++;
+
+                    // printf("last_angle: %f\n", last_angle);
+                    if (cycle_counter > 50) {
+                        cycle_counter = 0;
+                        robot_stopped = false;
+                        skipping_line_detection = true;
+                    }
+                }
+            }
 
             measureColor(Color_Sensor, color_raw_Hz, color_avg_Hz, color_cal, color_num, color_string);
 
@@ -176,7 +213,8 @@ int main()
             */
 
         } else {
-            counter = 0;
+            cycle_counter = -1;
+            enable_motors = 0;
 
             // the following code block gets executed only once
             if (do_reset_all_once) {
@@ -234,7 +272,6 @@ void toggle_do_execute_main_fcn()
  */
 void driveRobot(DCMotor &motor_M1,
                 DCMotor &motor_M2,
-                SensorBar *&active_sensor_bar,
                 float &direction,
                 float &angle,
                 const Eigen::Matrix2f &Cwheel2robot,
@@ -242,19 +279,39 @@ void driveRobot(DCMotor &motor_M1,
                 float r_wheel,
                 float speed)
 {
-
     constexpr float Kp{5.0f};
-
-    if (active_sensor_bar->isAnyLedActive()) {
-        angle = direction * active_sensor_bar->getAvgAngleRad();
-        // printf("Angle: %f\n", angle);
-    }
 
     const Eigen::Vector2f robot_coord = {speed * wheel_vel_max * r_wheel, -Kp * angle};
     const Eigen::Vector2f wheel_speed = Cwheel2robot.inverse() * robot_coord;
 
     motor_M1.setVelocity((wheel_speed(0) / (2.0f * M_PIf)) * direction);
     motor_M2.setVelocity(((wheel_speed(1) / (2.0f * M_PIf)) * -1) * direction);
+}
+
+void stopRobot(DCMotor &motor_M1, DCMotor &motor_M2)
+{
+    motor_M1.setVelocity(0.0f);
+    motor_M2.setVelocity(0.0f);
+}
+
+/**
+ *
+ * @param active_sensor_bar
+ * @return int (0 = normal line detected, 1 = small line detected, 2 = big line detected)
+ */
+int detectLine(SensorBar *&active_sensor_bar)
+{
+    float raw = active_sensor_bar->getRaw();
+    // printf("raw: %f\n", raw);
+
+    switch (static_cast<int>(raw)) {
+        case 255:
+            return 2;
+        case 60:
+            return 1;
+        default:
+            return 0;
+    }
 }
 
 void measureColor(

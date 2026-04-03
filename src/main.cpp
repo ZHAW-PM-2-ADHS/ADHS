@@ -12,6 +12,8 @@
 
 #define M_PIf 3.14159265358979323846f // pi
 
+float speed_filtered_reset = 1.0f;
+
 bool do_execute_main_task = false; // this variable will be toggled via the user button (blue button) and
                                    // decides whether to execute the main task or not
 bool do_reset_all_once = false;    // this variable is used to reset certain variables and objects and
@@ -44,7 +46,7 @@ void driveRobot(DCMotor &motor_M1,
 
 void stopRobot(DCMotor &motor_M1, DCMotor &motor_M2);
 
-int detectLine(SensorBar *&active_sensor_bar);
+int detectLine(SensorBar *&sensor_bar);
 
 void measureColor(
     ColorSensor &sensor, float raw[4], float avg[4], float cal[4], int &color_num, const char *&color_string);
@@ -79,7 +81,7 @@ int main()
     // 6.0f V if you only use one battery pack
 
     constexpr float b_wheel = 0.128f;         // wheelbase, distance from wheel to wheel in meters
-    constexpr float bar_dist = 0.07f;        // distance from wheel axis to leds on sensor bar / array in meters
+    constexpr float bar_dist = 0.07f;         // distance from wheel axis to leds on sensor bar / array in meters
     constexpr float d_wheel = 0.0596f;        // wheel diameter in meters
     constexpr float r_wheel = d_wheel / 2.0f; // wheel radius in meters
 
@@ -100,11 +102,12 @@ int main()
     float sensor_direction = 1.0f;
 
     // Both sensor bars, one in front, one at the back
-    SensorBar sensor_bar_front(PB_9, PB_8, bar_dist);
-    SensorBar sensor_bar_back(PB_3, PB_10, bar_dist);
+    SensorBar sensor_bar_1(PB_9, PB_8, bar_dist);
+    SensorBar sensor_bar_2(PB_3, PB_10, bar_dist);
 
     // Pointer to the sensor bar actually being used
-    SensorBar *active_sensor_bar = &sensor_bar_front;
+    SensorBar *sensor_bar_front = &sensor_bar_1;
+    SensorBar *sensor_bar_back = &sensor_bar_2;
 
     // angle measured from sensor bar (black line) relative to robot
     float angle{0.0f};
@@ -136,8 +139,17 @@ int main()
     // counter for timing specific events
     int cycle_counter = 0;
 
+    // Variables to manage robot states outside of cycles
     bool skipping_line_detection = false;
     bool robot_stopped = false;
+    bool just_started = true;
+
+    // values to control the start of the robot
+    constexpr float starting_angle = 0.2;
+    constexpr int starting_cycle_count = 25;
+
+    // Specific line follower readings (at the back) that help avoiding a stop at the crossing to the warehouse
+    constexpr int backSensorReadingsToNotStop[] = {1, 3, 7, 12, 14, 15, 48, 96, 112, 128, 192, 224, 240};
 
     // this loop will run forever
     while (true) {
@@ -149,52 +161,71 @@ int main()
         if (do_execute_main_task) {
             // This condition is only for demonstration purposes.
             // Switching the direction based on time does not make sense
-            /*if (counter % 500 == 0) {
+            /*if (cycle_counter % 500 == 0) {
                 sensor_direction = -sensor_direction;
 
-                if (active_sensor_bar == &sensor_bar_front) {
-                    active_sensor_bar = &sensor_bar_back;
+                if (sensor_bar_front == &sensor_bar_1) {
+                    sensor_bar_front = &sensor_bar_2;
+                    sensor_bar_back = &sensor_bar_1;
                 } else {
-                    active_sensor_bar = &sensor_bar_front;
+                    sensor_bar_front = &sensor_bar_1;
+                    sensor_bar_back = &sensor_bar_2;
                 }
-            }
-            counter++;
-            */
+                cycle_counter++;
+            }*/
+
+            // angle = sensor_direction * sensor_bar_front->getAvgAngleRad();
+            // printf("angle: %f\n", angle);
+            // continue;
 
             if (!robot_stopped) {
-                if (active_sensor_bar->isAnyLedActive()) {
-                    int lineStatus = detectLine(active_sensor_bar);
+                if (sensor_bar_front->isAnyLedActive() || just_started) {
+                    int crossingLine = 0;
                     if (skipping_line_detection) {
-                        lineStatus = 0;
                         cycle_counter++;
-                        if (cycle_counter > 25) {
+                        if (cycle_counter > 50) {
                             cycle_counter = 0;
                             skipping_line_detection = false;
                         }
+                    } else {
+                        crossingLine = detectLine(sensor_bar_front);
                     }
 
-                    if (lineStatus == 0) {
+                    if (crossingLine == 0) {
                         enable_motors = 1;
-                        angle = sensor_direction * active_sensor_bar->getAvgAngleRad();
+                        if (just_started == true) {
+                            angle = starting_angle;
+                            cycle_counter++;
+                            if (cycle_counter > starting_cycle_count) {
+                                cycle_counter = 0;
+                                just_started = false;
+                            }
+                        } else {
+                            angle = sensor_direction * sensor_bar_front->getAvgAngleRad();
+                        }
                         driveRobot(
                             motor_M1, motor_M2, sensor_direction, angle, Cwheel2robot, wheel_vel_max, r_wheel, speed);
-                    } else if (lineStatus == 1) {
+                    } else {
                         stopRobot(motor_M1, motor_M2);
                         robot_stopped = true;
-                    } else if (lineStatus == 2) {
-                        stopRobot(motor_M1, motor_M2);
-                        robot_stopped = true;
+                        if (crossingLine == 1) {
+                            printf("small line crossed");
+                        } else if (crossingLine == 2) {
+                            printf("big line crossed");
+                        }
                     }
                 }
             } else {
-                int backsensorAVG = sensor_bar_back.getRaw();
-                if (backsensorAVG == 6 || backsensorAVG == 48) {
+                int backSensorRaw = sensor_bar_back->getRaw();
+                // printf("backsensorAVG: %d\n", backsensorAVG);
+                if (std::find(std::begin(backSensorReadingsToNotStop),
+                              std::end(backSensorReadingsToNotStop),
+                              backSensorRaw) != std::end(backSensorReadingsToNotStop)) {
                     robot_stopped = false;
                 } else {
                     enable_motors = 0;
                     cycle_counter++;
 
-                    // printf("last_angle: %f\n", last_angle);
                     if (cycle_counter > 50) {
                         cycle_counter = 0;
                         robot_stopped = false;
@@ -213,8 +244,6 @@ int main()
             */
 
         } else {
-            cycle_counter = -1;
-            enable_motors = 0;
 
             // the following code block gets executed only once
             if (do_reset_all_once) {
@@ -233,6 +262,7 @@ int main()
                 color_string = nullptr;
 
                 enable_motors = 0;
+                cycle_counter = 0;
             }
         }
 
@@ -281,7 +311,34 @@ void driveRobot(DCMotor &motor_M1,
 {
     constexpr float Kp{5.0f};
 
-    const Eigen::Vector2f robot_coord = {speed * wheel_vel_max * r_wheel, -Kp * angle};
+    // smoothing + softer response for small angles
+    static float angle_filtered = 0.0f;
+    const float alpha = 0.3f; // low-pass filter factor (smaller = smoother)
+    angle_filtered = (1.0f - alpha) * angle_filtered + alpha * angle;
+
+    float abs_angle = fabs(angle_filtered);
+
+    // reduce gain for small angles to avoid oscillation
+    float effective_Kp = (abs_angle < 0.1f) ? (Kp * 0.3f) : Kp;
+
+    // smooth acceleration (ramp up speed)
+    static float speed_filtered = 0.0f;
+
+    if (speed_filtered_reset == 0.0f) {
+        speed_filtered = 0.0f;
+    }
+    // faster convergence when close to target speed
+    float diff = speed - speed_filtered;
+
+    const float accel_alpha_slow = 0.1f; // smooth start
+    const float accel_alpha_fast = 0.3f; // faster convergence
+
+    float accel_alpha = (fabs(diff) < 0.1f) ? accel_alpha_fast : accel_alpha_slow;
+
+    speed_filtered = (1.0f - accel_alpha) * speed_filtered + accel_alpha * speed;
+    speed_filtered_reset = 1.0f;
+
+    const Eigen::Vector2f robot_coord = {speed_filtered * wheel_vel_max * r_wheel, -effective_Kp * angle_filtered};
     const Eigen::Vector2f wheel_speed = Cwheel2robot.inverse() * robot_coord;
 
     motor_M1.setVelocity((wheel_speed(0) / (2.0f * M_PIf)) * direction);
@@ -292,16 +349,17 @@ void stopRobot(DCMotor &motor_M1, DCMotor &motor_M2)
 {
     motor_M1.setVelocity(0.0f);
     motor_M2.setVelocity(0.0f);
+    speed_filtered_reset = 0.0f;
 }
 
 /**
  *
- * @param active_sensor_bar
+ * @param sensor_bar
  * @return int (0 = normal line detected, 1 = small line detected, 2 = big line detected)
  */
-int detectLine(SensorBar *&active_sensor_bar)
+int detectLine(SensorBar *&sensor_bar)
 {
-    float raw = active_sensor_bar->getRaw();
+    float raw = sensor_bar->getRaw();
     // printf("raw: %f\n", raw);
 
     switch (static_cast<int>(raw)) {

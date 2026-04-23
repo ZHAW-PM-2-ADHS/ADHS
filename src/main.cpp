@@ -44,6 +44,19 @@ void driveRobot(DCMotor &motor_M1,
                 float r_wheel,
                 float speed);
 
+    /**
+ * @brief Drive the robot a certain distance at a constant speed.
+ * 
+ * @param motor_M1 Reference to motor M1
+ * @param motor_M2 Reference to motor M2
+ * @param r_wheel Wheel radius in meters
+ * @param distance Distance to drive in meters
+ * @param speed Normalized speed (0.0 to 1.0)
+ * @param main_task_period_ms Task period in milliseconds
+ * @return true if distance has been reached, false otherwise
+ */
+bool driveDistance(DCMotor &motor_M1, DCMotor &motor_M2, float r_wheel, float distance, float speed, int main_task_period_ms);
+
 void stopRobot(DCMotor &motor_M1, DCMotor &motor_M2);
 
 int detectLine(SensorBar *&sensor_bar);
@@ -89,7 +102,7 @@ int main()
     constexpr float gear_ratio = 100.00f;
     constexpr float kn = 140.0f / 12.0f;
 
-    float speed = 0.5f;
+    float speed = 0.5f; // translational speed scaling factor (0.0 to 1.0)
 
     // motor M1 and M2, do NOT enable motion planner when used with the LineFollower (disabled per default)
     DCMotor motor_M1(PB_PWM_M1, PB_ENC_A_M1, PB_ENC_B_M1, gear_ratio, kn, voltage_max);
@@ -102,8 +115,8 @@ int main()
     float sensor_direction = 1.0f;
 
     // Both sensor bars, one in front, one at the back
-    SensorBar sensor_bar_1(PB_9, PB_8, bar_dist);
-    SensorBar sensor_bar_2(PB_3, PB_10, bar_dist);
+    SensorBar sensor_bar_1(PB_9, PB_8, bar_dist);  // PB_9=D14, PB_8=D15
+    SensorBar sensor_bar_2(PB_3, PB_10, bar_dist); // PB_3=D3, PB_10=D6
 
     // Pointer to the sensor bar actually being used
     SensorBar *sensor_bar_front = &sensor_bar_1;
@@ -112,7 +125,7 @@ int main()
     // angle measured from sensor bar (black line) relative to robot
     float angle{0.0f};
 
-    // rotational velocity controller
+    // rotational velocity controller max wheel velocity [rad/s]
     const float wheel_vel_max = 2.0f * M_PIf * motor_M2.getMaxPhysicalVelocity();
 
     // color sensor
@@ -309,6 +322,7 @@ void driveRobot(DCMotor &motor_M1,
                 float r_wheel,
                 float speed)
 {
+    // Proportional gain for steering [1/s]
     constexpr float Kp{5.0f};
 
     // smoothing + softer response for small angles
@@ -350,6 +364,34 @@ void stopRobot(DCMotor &motor_M1, DCMotor &motor_M2)
     motor_M1.setVelocity(0.0f);
     motor_M2.setVelocity(0.0f);
     speed_filtered_reset = 0.0f;
+}
+
+bool driveDistance(DCMotor &motor_M1, DCMotor &motor_M2, float r_wheel, float distance, float speed, int main_task_period_ms)
+{
+    // max physical velocity in rotations per second
+    float max_physical_vel_rps = motor_M1.getMaxPhysicalVelocity();
+    // actual target velocity in m/s
+    float target_vel_ms = speed * max_physical_vel_rps * (2.0f * M_PIf) * r_wheel;
+    // target velocity in rps
+    float target_vel_rps = speed * max_physical_vel_rps;
+
+    // total time to drive the distance
+    float total_time = distance / target_vel_ms;
+    // total number of cycles
+    int total_cycles = static_cast<int>(total_time / (static_cast<float>(main_task_period_ms) * 0.001f));
+
+    static int cycle_count = 0;
+
+    if (cycle_count < total_cycles) {
+        motor_M1.setVelocity(target_vel_rps);
+        motor_M2.setVelocity(-target_vel_rps);
+        cycle_count++;
+        return false;
+    } else {
+        stopRobot(motor_M1, motor_M2);
+        cycle_count = 0;
+        return true;
+    }
 }
 
 /**

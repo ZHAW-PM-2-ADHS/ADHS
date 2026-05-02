@@ -5,12 +5,42 @@
 
 // drivers
 #include <Eigen/Dense>
+
 #include "ColorSensor.h"
 #include "DCMotor.h"
 #include "DebounceIn.h"
 #include "SensorBar.h"
+#include "Servo.h"
 
 #define M_PIf 3.14159265358979323846f // pi
+
+// variable for servo base
+constexpr float D0_startPos = 0.5f;      // starting position
+constexpr float D0_redSlotPos = 0.7f;    // red slot position
+constexpr float D0_greenSlotPos = 0.8f;  // green slot position
+constexpr float D0_blueSlotPos = 0.9f;   // blue slot position
+constexpr float D0_yellowSlotPos = 1.0f; // yellow slot position
+
+// variables for servo arm
+float D1_retractedPos = 0.7f;   // retracted position
+float D1_lowPackagePos = 0.98f; // low package position
+float D1_highPackagePos = 0.9f; // high package position
+float D1_storePos = 0.85f;      // position to store the package in the arm
+
+// variables for servo mechanism
+float D2_openPos = 0.55f;  // start position
+float D2_closedPos = 1.0f; // end position
+
+// minimal pulse width and maximal pulse width obtained from the servo calibration process
+// reely S0090
+float servo_D0_ang_min = 0.032f; // careful, these values might differ from servo to servo
+float servo_D0_ang_max = 0.119f;
+// reely S0090
+float servo_D1_ang_min = 0.032f;
+float servo_D1_ang_max = 0.119f;
+// reely S0008
+float servo_D2_ang_min = 0.025f;
+float servo_D2_ang_max = 0.119f;
 
 float speed_filtered_reset = 1.0f;
 
@@ -44,9 +74,9 @@ void driveRobot(DCMotor &motor_M1,
                 float r_wheel,
                 float speed);
 
-    /**
+/**
  * @brief Drive the robot a certain distance at a constant speed.
- * 
+ *
  * @param motor_M1 Reference to motor M1
  * @param motor_M2 Reference to motor M2
  * @param r_wheel Wheel radius in meters
@@ -55,7 +85,8 @@ void driveRobot(DCMotor &motor_M1,
  * @param main_task_period_ms Task period in milliseconds
  * @return true if distance has been reached, false otherwise
  */
-bool driveDistance(DCMotor &motor_M1, DCMotor &motor_M2, float r_wheel, float distance, float speed, int main_task_period_ms);
+bool driveDistance(
+    DCMotor &motor_M1, DCMotor &motor_M2, float r_wheel, float distance, float speed, int main_task_period_ms);
 
 void stopRobot(DCMotor &motor_M1, DCMotor &motor_M2);
 
@@ -63,6 +94,12 @@ int detectLine(SensorBar *&sensor_bar);
 
 void measureColor(
     ColorSensor &sensor, float raw[4], float avg[4], float cal[4], int &color_num, const char *&color_string);
+
+float colorNumToPosition(int color_num);
+
+bool move_servo();
+
+bool pickup_package(Servo &servo_D0, Servo &servo_D1, Servo &servo_D2, int color_num);
 
 // main runs as an own thread
 int main()
@@ -86,6 +123,24 @@ int main()
     DigitalOut led1(PB_9);
 
     // --- adding variables and objects and applying functions starts here ---
+
+    // servo
+    Servo servo_D0(PB_D0);
+    Servo servo_D1(PB_D1);
+    Servo servo_D2(PB_D2);
+
+    // servo variables
+    float servo_input = 0.0f;
+    // float step = 0.01f; //step size for servo
+
+    servo_D0.calibratePulseMinMax(servo_D0_ang_min, servo_D0_ang_max);
+    servo_D1.calibratePulseMinMax(servo_D1_ang_min, servo_D1_ang_max);
+    servo_D2.calibratePulseMinMax(servo_D2_ang_min, servo_D2_ang_max);
+
+    // default acceleration of the servo motion profile is 1.0e6f
+    servo_D0.setMaxAcceleration(0.7f);
+    servo_D1.setMaxAcceleration(0.7f);
+    servo_D2.setMaxAcceleration(0.7f);
 
     // create object to enable power electronics for the dc motors
     DigitalOut enable_motors(PB_ENABLE_DCMOTORS);
@@ -112,7 +167,7 @@ int main()
     Eigen::Matrix2f Cwheel2robot;
     Cwheel2robot << r_wheel / 2.0f, r_wheel / 2.0f, r_wheel / b_wheel, -r_wheel / b_wheel;
 
-    float sensor_direction = 1.0f;
+    float sensor_direction = -1.0f;
 
     // Both sensor bars, one in front, one at the back
     SensorBar sensor_bar_1(PB_9, PB_8, bar_dist);  // PB_9=D14, PB_8=D15
@@ -158,8 +213,8 @@ int main()
     bool just_started = true;
 
     // values to control the start of the robot
-    constexpr float starting_angle = 0.2;
-    constexpr int starting_cycle_count = 25;
+    constexpr float starting_angle = -0.2;
+    constexpr int starting_cycle_count = 40;
 
     // Specific line follower readings (at the back) that help avoiding a stop at the crossing to the warehouse
     constexpr int backSensorReadingsToNotStop[] = {1, 3, 7, 12, 14, 15, 48, 96, 112, 128, 192, 224, 240};
@@ -172,24 +227,16 @@ int main()
         // --- code that runs every cycle at the start goes here ---
 
         if (do_execute_main_task) {
-            // This condition is only for demonstration purposes.
-            // Switching the direction based on time does not make sense
-            /*if (cycle_counter % 500 == 0) {
-                sensor_direction = -sensor_direction;
 
-                if (sensor_bar_front == &sensor_bar_1) {
-                    sensor_bar_front = &sensor_bar_2;
-                    sensor_bar_back = &sensor_bar_1;
-                } else {
-                    sensor_bar_front = &sensor_bar_1;
-                    sensor_bar_back = &sensor_bar_2;
-                }
-                cycle_counter++;
-            }*/
-
-            // angle = sensor_direction * sensor_bar_front->getAvgAngleRad();
-            // printf("angle: %f\n", angle);
-            // continue;
+            // Moving the Servo to a position on the top
+            if (just_started) {
+                if (!servo_D0.isEnabled())
+                    servo_D0.enable(D0_startPos);
+                if (!servo_D1.isEnabled())
+                    servo_D1.enable(D1_retractedPos);
+                if (!servo_D2.isEnabled())
+                    servo_D2.enable(D2_openPos);
+            }
 
             if (!robot_stopped) {
                 if (sensor_bar_front->isAnyLedActive() || just_started) {
@@ -237,17 +284,20 @@ int main()
                     robot_stopped = false;
                 } else {
                     enable_motors = 0;
-                    cycle_counter++;
 
-                    if (cycle_counter > 50) {
-                        cycle_counter = 0;
-                        robot_stopped = false;
-                        skipping_line_detection = true;
+                    measureColor(Color_Sensor, color_raw_Hz, color_avg_Hz, color_cal, color_num, color_string);
+
+                    // If the detected color is not in the valid range, it is necessary to wait until a good reading comes
+                    if (color_num >= 3 && color_num <= 8) {
+
+                        // Only when pickup_package returns true (=pickup done), can the robot resume driving
+                        if (pickup_package(servo_D0, servo_D1, servo_D2, color_num)) {
+                            robot_stopped = false;
+                            skipping_line_detection = true;
+                        }
                     }
                 }
             }
-
-            measureColor(Color_Sensor, color_raw_Hz, color_avg_Hz, color_cal, color_num, color_string);
 
             // Comment in if needed
             /*
@@ -276,6 +326,9 @@ int main()
 
                 enable_motors = 0;
                 cycle_counter = 0;
+
+                servo_D0.disable();
+                servo_D1.disable();
             }
         }
 
@@ -291,6 +344,74 @@ int main()
         else
             thread_sleep_for(main_task_period_ms - main_task_elapsed_time_ms);
     }
+}
+
+bool move_servo(Servo &servo, const float pulseWidth)
+{
+    servo.setPulseWidth(pulseWidth);
+    return servo.isAtTarget();
+}
+
+bool pickup_package(Servo &servo_D0, Servo &servo_D1, Servo &servo_D2, const int color_num)
+{
+    enum State {
+        INIT,
+        LOWER_ARM,
+        CLOSE_GRIPPER,
+        LIFT_PACKAGE,
+        ROTATE_TO_SLOT,
+        STORE_PACKAGE,
+        OPEN_GRIPPER,
+        RESET_POSITION
+    };
+
+    // This variable persists across cycles
+    static State state = INIT;
+
+    switch (state) {
+        case INIT:
+            if (move_servo(servo_D0, D0_startPos) && move_servo(servo_D2, D2_openPos)) {
+                state = LOWER_ARM;
+            }
+            break;
+        case LOWER_ARM:
+            if (move_servo(servo_D1, D1_lowPackagePos)) {
+                state = CLOSE_GRIPPER;
+            }
+            break;
+        case CLOSE_GRIPPER:
+            if (move_servo(servo_D2, D2_closedPos)) {
+                state = LIFT_PACKAGE;
+            }
+            break;
+        case LIFT_PACKAGE:
+            if (move_servo(servo_D1, D1_retractedPos)) {
+                state = ROTATE_TO_SLOT;
+            }
+            break;
+        case ROTATE_TO_SLOT:
+            if (move_servo(servo_D0, colorNumToPosition(color_num))) {
+                state = STORE_PACKAGE;
+            }
+            break;
+        case STORE_PACKAGE:
+            if (move_servo(servo_D1, D1_storePos)) {
+                state = OPEN_GRIPPER;
+            }
+            break;
+        case OPEN_GRIPPER:
+            if (move_servo(servo_D2, D2_openPos)) {
+                state = RESET_POSITION;
+            }
+            break;
+        case RESET_POSITION:
+            servo_D0.setPulseWidth(D0_startPos);
+            servo_D1.setPulseWidth(D1_retractedPos);
+            servo_D2.setPulseWidth(D2_openPos);
+            state = INIT;
+            return true;
+    }
+    return false;
 }
 
 void toggle_do_execute_main_fcn()
@@ -366,7 +487,8 @@ void stopRobot(DCMotor &motor_M1, DCMotor &motor_M2)
     speed_filtered_reset = 0.0f;
 }
 
-bool driveDistance(DCMotor &motor_M1, DCMotor &motor_M2, float r_wheel, float distance, float speed, int main_task_period_ms)
+bool driveDistance(
+    DCMotor &motor_M1, DCMotor &motor_M2, float r_wheel, float distance, float speed, int main_task_period_ms)
 {
     // max physical velocity in rotations per second
     float max_physical_vel_rps = motor_M1.getMaxPhysicalVelocity();
@@ -425,4 +547,21 @@ void measureColor(
 
     color_num = sensor.getColor();
     color_string = sensor.getColorString(color_num);
+}
+
+float colorNumToPosition(int color_num)
+{
+    switch (color_num) {
+        case 3: // RED
+            return D0_redSlotPos;
+        case 5: // GREEN
+            return D0_greenSlotPos;
+        case 7: // BLUE
+            return D0_blueSlotPos;
+        case 4: // YELLOW
+            return D0_yellowSlotPos;
+        default:
+            printf("Invalid color_num: %d\n", color_num);
+            return D0_startPos;
+    }
 }

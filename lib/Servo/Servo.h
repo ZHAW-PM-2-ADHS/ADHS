@@ -108,6 +108,10 @@ public:
      */
     bool isEnabled() const;
 
+    float getPosition();
+    float getTarget();
+    bool isAtTarget(float tolerance = 0.01f);
+
 private:
     static constexpr int64_t PERIOD_MUS = 20000;
     static constexpr float TS = 1.0e-6f * static_cast<float>(PERIOD_MUS);

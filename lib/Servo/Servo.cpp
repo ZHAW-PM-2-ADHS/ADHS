@@ -1,4 +1,5 @@
 #include "Servo.h"
+#include <cmath>
 
 Servo::Servo(PinName pin, float pulse_min, float pulse_max) : m_DigitalOut(pin), m_Thread(osPriorityAboveNormal1)
 {
@@ -126,4 +127,16 @@ float Servo::constrainPulse(float pulse) const
     return (pulse > PWM_MAX) ? PWM_MAX :
            (pulse < PWM_MIN) ? PWM_MIN :
             pulse;
+}
+
+float Servo::getPosition() {
+    return m_Motion.getPosition();
+}
+
+float Servo::getTarget() {
+    return m_pulse;
+}
+
+bool Servo::isAtTarget(float tolerance) {
+    return fabs(m_Motion.getPosition() - m_pulse) < tolerance;
 }

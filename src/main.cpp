@@ -41,13 +41,61 @@ int main()
 
     // --- adding variables and objects and applying functions starts here ---
     
-    // servo object
-    Servo servo_D0(PA_3);
+    
+    // servo
+    Servo servo_D0(PB_D0);
+    Servo servo_D1(PB_D1);
+    Servo servo_D2(PB_D2);
 
-    // servo variables
+
+
+
+    
+
+    //servo variables
     float servo_input = 0.0f;
-    int servo_counter = 0;
-    const int loops_per_second = static_cast<int>(ceilf(1.0f / (0.001f * static_cast<float>(main_task_period_ms))));
+    //float step = 0.01f; //step size for servo 
+
+    //variable for servo base
+    float startPos = 0.5f; //starting position 
+    float firstSlotPos = 0.7f; //first slot position
+    float secondSlotPos = 0.8f; //second slot position
+    float thirdSlotPos = 0.9f; //third slot position
+    float endPos = 1.0f; //end position 
+
+    //variables for servo arm
+    float retractedPos = 0.7f; // retracted position
+    float lowPackagePos = 0.98f; // low package position
+    float highPackagePos = 0.9f; // high package position
+    float storePos = 0.85f; // position to store the package in the arm
+
+    //variables for servo mechanism
+    float openPos = 0.55f; // start position
+    float closedPos = 1.0f; // end position
+
+
+
+    // minimal pulse width and maximal pulse width obtained from the servo calibration process
+    // reely S0090
+    float servo_D0_ang_min = 0.032f; // careful, these values might differ from servo to servo
+    float servo_D0_ang_max = 0.119f;
+    // reely S0090
+    float servo_D1_ang_min = 0.032f;
+    float servo_D1_ang_max = 0.119f;
+    // reely S0008
+    float servo_D2_ang_min = 0.025f;
+    float servo_D2_ang_max = 0.119f;
+
+    // servo.setPulseWidth: before calibration (0,1) -> (min pwm, max pwm)
+    // servo.setPulseWidth: after calibration (0,1) -> (servo_D0_ang_min, servo_D0_ang_max)
+    servo_D0.calibratePulseMinMax(servo_D0_ang_min, servo_D0_ang_max); 
+    servo_D1.calibratePulseMinMax(servo_D1_ang_min, servo_D1_ang_max);
+    servo_D2.calibratePulseMinMax(servo_D2_ang_min, servo_D2_ang_max);
+
+    servo_D0.setMaxAcceleration(0.5f);
+    servo_D1.setMaxAcceleration(0.5f);
+    servo_D2.setMaxAcceleration(0.5f);
+    
 
     // start timer
     main_task_timer.start();
@@ -63,21 +111,152 @@ int main()
 
         if (do_execute_main_task) {
 
-            // --- code that runs when the blue button was pressed goes here ---
+            // --- code that runs when the user or blue button was pressed goes here ---
             
             // enable servo
             if (!servo_D0.isEnabled())
-                servo_D0.enable();
+                servo_D0.enable(startPos);
+            if (!servo_D1.isEnabled())
+                servo_D1.enable(retractedPos);
+            if (!servo_D2.isEnabled())
+                servo_D2.enable(closedPos);
 
-            // command servo
-            servo_D0.setPulseWidth(servo_input);
+            
+            
+        //picking up the package 
+        thread_sleep_for(2000); // wait for 5 seconds
+        servo_D1.setPulseWidth(lowPackagePos);
+             
 
-            // calculate servo input for next cycle
-            if ((servo_input < 1.0f) &&                     // constrain servo_input to be < 1.0f
-                (servo_counter % loops_per_second == 0) &&  // true if servo_counter is a multiple of loops_per_second
-                (servo_counter != 0))                       // avoid servo_counter = 0
-                servo_input += 0.0005f;
-            servo_counter++;
+        servo_D2.setPulseWidth(openPos);   
+            thread_sleep_for(800); // wait for 5 seconds
+
+                servo_D2.setPulseWidth(closedPos);   
+                    thread_sleep_for(1500); // wait for 5 seconds
+                
+                    servo_D1.setPulseWidth(retractedPos);
+                        thread_sleep_for(1000); // wait for 5 seconds
+
+        //move to to first slot 
+        servo_D0.setPulseWidth(firstSlotPos);
+                thread_sleep_for(2000); // wait for 5 seconds
+                    
+                    servo_D1.setPulseWidth(storePos);
+                        thread_sleep_for(2000); // wait for 5 seconds
+
+                            servo_D2.setPulseWidth(openPos);   
+                                thread_sleep_for(1000); // wait for 5 seconds
+
+                                    servo_D2.setPulseWidth(closedPos);   
+                                        thread_sleep_for(1000); // wait for 5 seconds
+
+                                            servo_D1.setPulseWidth(retractedPos);
+                                                thread_sleep_for(2000); // wait for 5 seconds
+
+        //get second package 
+        servo_D0.setPulseWidth(startPos);
+                thread_sleep_for(2000); // wait for 5 seconds
+                    
+                    servo_D1.setPulseWidth(lowPackagePos);
+
+                            servo_D2.setPulseWidth(openPos);   
+                                thread_sleep_for(800); // wait for 5 seconds
+
+                                    servo_D2.setPulseWidth(closedPos);   
+                                        thread_sleep_for(1500); // wait for 5 seconds
+
+                                            servo_D1.setPulseWidth(retractedPos);
+                                                thread_sleep_for(1000); // wait for 5 seconds
+
+
+        //move to to second slot 
+        servo_D0.setPulseWidth(secondSlotPos);
+                thread_sleep_for(2000); // wait for 5 seconds
+                    
+                    servo_D1.setPulseWidth(storePos);
+                        thread_sleep_for(2000); // wait for 5 seconds
+
+                            servo_D2.setPulseWidth(openPos);   
+                                thread_sleep_for(1000); // wait for 5 seconds
+
+                                    servo_D2.setPulseWidth(closedPos);   
+                                        thread_sleep_for(1000); // wait for 5 seconds
+
+                                            servo_D1.setPulseWidth(retractedPos);
+                                                thread_sleep_for(2000); // wait for 5 seconds
+
+        
+        //get third package 
+        servo_D0.setPulseWidth(startPos);
+                thread_sleep_for(2000); // wait for 5 seconds
+                    
+                    servo_D1.setPulseWidth(lowPackagePos);
+
+                            servo_D2.setPulseWidth(openPos);   
+                                thread_sleep_for(800); // wait for 5 seconds
+
+                                    servo_D2.setPulseWidth(closedPos);   
+                                        thread_sleep_for(1500); // wait for 5 seconds
+
+                                            servo_D1.setPulseWidth(retractedPos);
+                                                thread_sleep_for(1000); // wait for 5 seconds
+
+
+        //move to to third slot 
+        servo_D0.setPulseWidth(thirdSlotPos);
+                thread_sleep_for(2000); // wait for 5 seconds
+                    
+                    servo_D1.setPulseWidth(storePos);
+                        thread_sleep_for(2000); // wait for 5 seconds
+
+                            servo_D2.setPulseWidth(openPos);   
+                                thread_sleep_for(1000); // wait for 5 seconds
+
+                                    servo_D2.setPulseWidth(closedPos);   
+                                        thread_sleep_for(1000); // wait for 5 seconds
+
+                                            servo_D1.setPulseWidth(retractedPos);
+                                                thread_sleep_for(2000); // wait for 5 seconds
+
+
+        //get fourth package 
+        servo_D0.setPulseWidth(startPos);
+                thread_sleep_for(2000); // wait for 5 seconds
+                    
+                    servo_D1.setPulseWidth(lowPackagePos);
+
+                            servo_D2.setPulseWidth(openPos);   
+                                thread_sleep_for(800); // wait for 5 seconds
+
+                                    servo_D2.setPulseWidth(closedPos);   
+                                        thread_sleep_for(1500); // wait for 5 seconds
+
+                                            servo_D1.setPulseWidth(retractedPos);
+                                                thread_sleep_for(1000); // wait for 5 seconds
+
+
+
+        //move to to fourth slot 
+        servo_D0.setPulseWidth(endPos);
+                thread_sleep_for(2000); // wait for 5 seconds
+                    
+                    servo_D1.setPulseWidth(storePos);
+                        thread_sleep_for(2000); // wait for 5 seconds
+
+                            servo_D2.setPulseWidth(openPos);   
+                                thread_sleep_for(1000); // wait for 5 seconds
+
+                                    servo_D2.setPulseWidth(closedPos);   
+                                        thread_sleep_for(1000); // wait for 5 seconds
+
+                                            servo_D1.setPulseWidth(retractedPos);
+                                                thread_sleep_for(2000); // wait for 5 seconds
+
+        servo_D0.setPulseWidth(startPos);
+                thread_sleep_for(5000); // wait for 5 seconds  
+            
+            
+            
 
             // visual feedback that the main task is executed, setting this once would actually be enough
             led1 = 1;
@@ -89,9 +268,13 @@ int main()
                 // --- variables and objects that should be reset go here ---
 
                 // reset variables and objects
+                
                 led1 = 0;
                 servo_D0.disable();
-                servo_input = 0.0f;
+                servo_D1.disable();
+                servo_D2.disable();
+                
+                
             }
         }
 

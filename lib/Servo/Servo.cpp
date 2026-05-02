@@ -51,12 +51,9 @@ void Servo::setPulseWidth(float pulse)
 void Servo::enable(float pulse)
 {
     m_enabled = true;
-
-    // set pulse width when enabled
     m_pulse = calculateNormalisedPulseWidth(pulse);
     m_Motion.setPosition(m_pulse);
-
-    // attach sendThreadFlag() to ticker so that sendThreadFlag() is called periodically, which signals the thread to execute
+    m_Motion.setVelocity(0.0f);   // reset motion velocity
     m_Ticker.attach(callback(this, &Servo::sendThreadFlag), std::chrono::microseconds{PERIOD_MUS});
 }
 
@@ -76,11 +73,11 @@ bool Servo::isEnabled() const
 
 float Servo::calculateNormalisedPulseWidth(float pulse)
 {
-    // it is assumed that after the calibration m_pulse_min != 0.0f and if so
-    // we constrain the pulse to the range (0.0f, 1.0f)
-    if (m_pulse_min != 0.0f)
-        pulse = (pulse > 1.0f) ? 1.0f : (pulse < 0.0f) ? 0.0f : pulse;
-    return constrainPulse((m_pulse_max - m_pulse_min) * pulse + m_pulse_min);
+    // always clamp the input pulse to normalized range [0.0f, 1.0f]
+    pulse = (pulse > 1.0f) ? 1.0f : (pulse < 0.0f) ? 0.0f : pulse;
+
+    float normalised = (m_pulse_max - m_pulse_min) * pulse + m_pulse_min;
+    return constrainPulse(normalised);
 }
 
 void Servo::threadTask()

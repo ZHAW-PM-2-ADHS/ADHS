@@ -15,11 +15,11 @@
 #define M_PIf 3.14159265358979323846f // pi
 
 // variable for servo base
-constexpr float D0_startPos = 0.5f;      // starting position
-constexpr float D0_redSlotPos = 0.7f;    // red slot position
-constexpr float D0_greenSlotPos = 0.8f;  // green slot position
-constexpr float D0_blueSlotPos = 0.9f;   // blue slot position
-constexpr float D0_yellowSlotPos = 1.0f; // yellow slot position
+constexpr float D0_startPos = 0.45f;      // starting position
+constexpr float D0_redSlotPos = 0.62f;    // red slot position
+constexpr float D0_greenSlotPos = 0.725f; // green slot position
+constexpr float D0_blueSlotPos = 0.845f;  // blue slot position
+constexpr float D0_yellowSlotPos = 0.935f; // yellow slot position
 
 constexpr float voltage_max = 12.0f; // maximum voltage of battery packs, adjust this to
 // 6.0f V if you only use one battery pack
@@ -33,25 +33,25 @@ constexpr float gear_ratio = 100.00f;
 constexpr float kn = 140.0f / 12.0f;
 
 // variables for servo arm
-float D1_retractedPos = 0.7f;   // retracted position
-float D1_lowPackagePos = 0.98f; // low package position
-float D1_highPackagePos = 0.9f; // high package position
-float D1_storePos = 0.85f;      // position to store the package in the arm
+constexpr float D1_retractedPos = 0.6f;    // retracted position
+constexpr float D1_lowPackagePos = 0.87f;  // low package position
+constexpr float D1_highPackagePos = 0.82f; // high package position
+constexpr float D1_storePos = 0.72f;       // position to store the package in the arm
 
 // variables for servo mechanism
-float D2_openPos = 0.55f;  // start position
-float D2_closedPos = 1.0f; // end position
+constexpr float D2_openPos = 0.75f;  // start position
+constexpr float D2_closedPos = 1.0f; // end position
 
 // minimal pulse width and maximal pulse width obtained from the servo calibration process
 // reely S0090
-float servo_D0_ang_min = 0.032f; // careful, these values might differ from servo to servo
-float servo_D0_ang_max = 0.119f;
+constexpr float servo_D0_ang_min = 0.032f;
+constexpr float servo_D0_ang_max = 0.119f;
 // reely S0090
-float servo_D1_ang_min = 0.032f;
-float servo_D1_ang_max = 0.119f;
+constexpr float servo_D1_ang_min = 0.032f;
+constexpr float servo_D1_ang_max = 0.119f;
 // reely S0008
-float servo_D2_ang_min = 0.025f;
-float servo_D2_ang_max = 0.119f;
+constexpr float servo_D2_ang_min = 0.025f;
+constexpr float servo_D2_ang_max = 0.119f;
 
 float speed_filtered_reset = 1.0f;
 
@@ -198,7 +198,6 @@ int main()
     // Variables to manage robot states outside of cycles
     bool robot_driving_regularly = true;
     int packages_on_robot = 0;
-    static bool reversed_after_full = false;
 
     // values to control the start of the robot
     constexpr float starting_angle = -0.2;
@@ -206,6 +205,22 @@ int main()
 
     // Specific line follower readings (at the back) that help avoiding a stop at the crossing to the warehouse
     constexpr int backSensorReadingsToNotStop[] = {1, 3, 7, 12, 14, 15, 48, 96, 112, 128, 192, 224, 240};
+
+    enum RobotState {
+        PACKAGE_PICKUP,
+        PACKAGE_PLACEMENT
+    };
+
+    enum DriveState {
+        DRIVE_NORMAL,
+        REVERSING,
+        POSSIBLY_ON_LINE,
+        STOPPED
+    };
+
+    DriveState drive_state = DRIVE_NORMAL;
+
+    RobotState robot_state = PACKAGE_PICKUP;
 
     // this loop will run forever
     while (true) {
@@ -223,42 +238,48 @@ int main()
                 servo_D2.enable(D2_openPos);
             }
 
-            if (robot_driving_regularly) {
-                if (sensor_bar_front->isAnyLedActive() || starting_cycle_count > 0) {
-                    int crossingLine = 0;
-                    if (skip_line_detection_counter > 0) {
-                        skip_line_detection_counter--;
-                    } else {
-                        crossingLine = detectLine(sensor_bar_front);
-                    }
-
-                    if (crossingLine == 0) {
-                        enable_motors = 1;
-                        if (starting_cycle_count > 0) {
-                            angle = starting_angle;
-                            starting_cycle_count--;
+            switch (drive_state) {
+                case DRIVE_NORMAL: {
+                    if (sensor_bar_front->isAnyLedActive() || starting_cycle_count > 0) {
+                        int crossingLine = 0;
+                        if (skip_line_detection_counter > 0) {
+                            skip_line_detection_counter--;
                         } else {
-                            angle = sensor_direction * sensor_bar_front->getAvgAngleRad();
+                            crossingLine = detectLine(sensor_bar_front);
                         }
-                        driveRobot(motor_M1, motor_M2, sensor_direction, angle, Cwheel2robot, wheel_vel_max, speed);
-                    } else {
-                        stopRobot(motor_M1, motor_M2);
-                        robot_driving_regularly = false;
-                        if (crossingLine == 1) {
-                            printf("small line crossed");
-                        } else if (crossingLine == 2) {
-                            printf("big line crossed");
+
+                        if (crossingLine == 0) {
+                            enable_motors = 1;
+                            if (starting_cycle_count > 0) {
+                                angle = starting_angle;
+                                starting_cycle_count--;
+                            } else {
+                                angle = sensor_direction * sensor_bar_front->getAvgAngleRad();
+                            }
+                            driveRobot(motor_M1, motor_M2, sensor_direction, angle, Cwheel2robot, wheel_vel_max, speed);
+                        } else {
+                            int stop_line = (robot_state == PACKAGE_PICKUP) ? 2 : 1;
+
+                            if (crossingLine == stop_line) {
+                                stopRobot(motor_M1, motor_M2);
+                                drive_state = POSSIBLY_ON_LINE;
+                            }
                         }
                     }
+                    break;
                 }
-            } else {
-                int backSensorRaw = sensor_bar_back->getRaw();
-                // printf("backsensorAVG: %d\n", backsensorAVG);
-                if (std::find(std::begin(backSensorReadingsToNotStop),
-                              std::end(backSensorReadingsToNotStop),
-                              backSensorRaw) != std::end(backSensorReadingsToNotStop)) {
-                    robot_driving_regularly = true;
-                } else {
+                case POSSIBLY_ON_LINE: {
+                    int backSensorRaw = sensor_bar_back->getRaw();
+                    if (std::find(std::begin(backSensorReadingsToNotStop),
+                                  std::end(backSensorReadingsToNotStop),
+                                  backSensorRaw) != std::end(backSensorReadingsToNotStop)) {
+                        drive_state = DRIVE_NORMAL;
+                        break;
+                    }
+                    drive_state = STOPPED;
+                    enable_motors = 0;
+                } break;
+                case STOPPED: {
                     enum StoppedState {
                         MEASURE_COLOR,
                         REVERSE,
@@ -296,10 +317,11 @@ int main()
                                 initialized = true;
                             }
 
-                            bool has_reversed = driveDistance(motor_M1, motor_M2, 0.05);
+                            bool has_reversed = driveDistance(motor_M1, motor_M2, 0.09);
 
                             if (has_reversed) {
                                 initialized = false; // reset for next time
+                                enable_motors = 0;
                                 stopped_state = PICKUP;
                             } else {
                                 driveRobot(motor_M1, motor_M2, sensor_direction, 0, Cwheel2robot, wheel_vel_max, speed);
@@ -314,7 +336,7 @@ int main()
                             }
                             break;
                         case RESUME_DRIVING:
-                            robot_driving_regularly = true;
+                            drive_state = DRIVE_NORMAL;
                             skip_line_detection_counter = 50;
                             if (does_reverse) {
                                 sensor_direction = -sensor_direction;
@@ -325,11 +347,15 @@ int main()
                             break;
                     }
                 }
+                default:
+                    break;
             }
 
-            if (!reversed_after_full && packages_on_robot == 4) {
+            if (robot_state == PACKAGE_PICKUP && packages_on_robot == 4) {
                 sensor_direction = -sensor_direction;
-                reversed_after_full = true;
+                sensor_bar_back = &sensor_bar_1;
+                sensor_bar_front = &sensor_bar_2;
+                robot_state = PACKAGE_PLACEMENT;
             }
 
         } else {
@@ -339,8 +365,6 @@ int main()
                 do_reset_all_once = false;
 
                 // --- variables and objects that should be reset go here ---
-
-                // reset variables and objects
 
                 for (int i = 0; i < 4; i++) {
                     color_raw_Hz[i] = 0.0f;
@@ -362,8 +386,6 @@ int main()
         // toggling the user led
         user_led = !user_led;
 
-        // --- code that runs every cycle at the end goes here ---
-
         // read timer and make the main thread sleep for the remaining time span (non blocking)
         const long long main_task_elapsed_time_ms = duration_cast<milliseconds>(main_task_timer.elapsed_time()).count();
         if (main_task_period_ms - main_task_elapsed_time_ms < 0)
@@ -376,7 +398,7 @@ int main()
 bool move_servo(Servo &servo, const float pulseWidth)
 {
     servo.setPulseWidth(pulseWidth);
-    return servo.isAtTarget();
+    return servo.isAtTarget(0.002f);
 }
 
 bool pickup_package(Servo &servo_D0, Servo &servo_D1, Servo &servo_D2, const int color_num)
@@ -384,11 +406,11 @@ bool pickup_package(Servo &servo_D0, Servo &servo_D1, Servo &servo_D2, const int
     enum State {
         INIT,
         LOWER_ARM,
-        CLOSE_GRIPPER,
         LIFT_PACKAGE,
         ROTATE_TO_SLOT,
         STORE_PACKAGE,
         OPEN_GRIPPER,
+        RETRACT_AFTER_STORING,
         RESET_POSITION
     };
 
@@ -397,17 +419,12 @@ bool pickup_package(Servo &servo_D0, Servo &servo_D1, Servo &servo_D2, const int
 
     switch (state) {
         case INIT:
-            if (move_servo(servo_D0, D0_startPos) && move_servo(servo_D2, D2_openPos)) {
+            if (move_servo(servo_D0, D0_startPos) && move_servo(servo_D2, D2_closedPos)) {
                 state = LOWER_ARM;
             }
             break;
         case LOWER_ARM:
             if (move_servo(servo_D1, D1_lowPackagePos)) {
-                state = CLOSE_GRIPPER;
-            }
-            break;
-        case CLOSE_GRIPPER:
-            if (move_servo(servo_D2, D2_closedPos)) {
                 state = LIFT_PACKAGE;
             }
             break;
@@ -428,13 +445,18 @@ bool pickup_package(Servo &servo_D0, Servo &servo_D1, Servo &servo_D2, const int
             break;
         case OPEN_GRIPPER:
             if (move_servo(servo_D2, D2_openPos)) {
+                state = RETRACT_AFTER_STORING;
+            }
+            break;
+        case RETRACT_AFTER_STORING:
+            if (move_servo(servo_D1, D1_retractedPos)) {
                 state = RESET_POSITION;
             }
             break;
         case RESET_POSITION:
             servo_D0.setPulseWidth(D0_startPos);
             servo_D1.setPulseWidth(D1_retractedPos);
-            servo_D2.setPulseWidth(D2_openPos);
+            servo_D2.setPulseWidth(D2_closedPos);
             state = INIT;
             return true;
     }
@@ -527,9 +549,9 @@ bool driveDistance(DCMotor &motor_M1, DCMotor &motor_M2, float distance)
 
         case DRIVING:
             const float delta_rot_M1 = motor_M1.getRotation() - start_rot_M1;
-            const float delta_rot_M2 = motor_M2.getRotation() - start_rot_M2;
+            // const float delta_rot_M2 = motor_M2.getRotation() - start_rot_M2;
 
-            const float average_delta_rot = (fabs(delta_rot_M1) + fabs(delta_rot_M2)) / 2.0f;
+            const float average_delta_rot = fabs(delta_rot_M1);
 
             const float traveled = average_delta_rot * meters_per_rotation;
 

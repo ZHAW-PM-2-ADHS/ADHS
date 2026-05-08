@@ -77,6 +77,18 @@ uint8_t SensorBar::getRaw() const
     return lastBarRawValue;
 }
 
+uint8_t SensorBar::getActiveBits() const
+{
+    // return raw sensor state (already includes invert logic)
+    return lastBarRawValue;
+}
+
+bool SensorBar::isBitActive(uint8_t bit) const
+{
+    if (bit > 7) return false;
+    return (lastBarRawValue >> bit) & 0x01;
+}
+
 int8_t SensorBar::getBinaryPosition() const
 {
     return -lastBarPositionValue;

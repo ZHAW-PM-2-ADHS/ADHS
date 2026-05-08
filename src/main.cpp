@@ -363,6 +363,7 @@ int main()
                 sensor_direction = -sensor_direction;
                 sensor_bar_front = &sensor_bar_2;
                 robot_state = PACKAGE_PLACEMENT;
+                skip_line_detection_counter = 220;
             } else if (robot_state == PACKAGE_PLACEMENT && packages_on_robot == 0) {
                 // Done with delivery
                 do_execute_main_task = false;
@@ -708,16 +709,19 @@ bool driveDistance(DCMotor &motor_M1, DCMotor &motor_M2, float distance)
  */
 int detectLine(SensorBar *&sensor_bar)
 {
-    float raw = sensor_bar->getRaw();
+    uint8_t bits = sensor_bar->getActiveBits();
 
-    switch (static_cast<int>(raw)) {
-        case 255:
-            return 2;
-        case 60:
-            return 1;
-        default:
-            return 0;
+    // all sensors active
+    if (bits == 0xFF) {
+        return 2;
     }
+
+    // only middle 4 sensors active (bits 2–5)
+    if (bits == 0b00111100) {
+        return 1;
+    }
+
+    return 0;
 }
 
 void measureColor(

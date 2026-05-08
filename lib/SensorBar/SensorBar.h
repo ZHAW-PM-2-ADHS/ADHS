@@ -171,6 +171,8 @@ public:
     void clearInvertBits(); // to make the bar look for a dark line on a reflective surface
 
     uint8_t getRaw() const;
+    uint8_t getActiveBits() const;
+    bool isBitActive(uint8_t bit) const;
     int8_t getBinaryPosition() const;
     float getAngleRad() const;
     float getAvgAngleRad() const;

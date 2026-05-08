@@ -173,20 +173,20 @@ void SensorBar::update()
         writeByte(REG_DATA_B, 0x03);
     }
 
-    //count bits
-    for ( i = 0; i < 8; i++ ) {
+    //count bits (ignore outermost sensors: bits 0 and 7)
+    for ( i = 1; i < 7; i++ ) {
         if ( ((lastBarRawValue >> i) & 0x01) == 1 ) {
             bitsCounted++;
         }
     }
 
     //Find the vector value of each positive bit and sum
-    for ( i = 7; i > 3; i-- ) { //iterate negative side bits
+    for ( i = 6; i > 3; i-- ) { // exclude outermost bit 7
         if ( ((lastBarRawValue >> i) & 0x01) == 1 ) {
             accumulator += ((-32 * (i - 3)) + 1);
         }
     }
-    for ( i = 0; i < 4; i++ ) { //iterate positive side bits
+    for ( i = 1; i < 4; i++ ) { // exclude outermost bit 0
         if ( ((lastBarRawValue >> i) & 0x01) == 1 ) {
             accumulator += ((32 * (4 - i)) - 1);
         }
@@ -373,8 +373,8 @@ uint8_t SensorBar::updateNrOfLedsActive()
     uint8_t bitsCounted = 0;
     uint8_t i;
 
-    //count bits
-    for ( i = 0; i < 8; i++ ) {
+    // count only inner sensors (1–6)
+    for ( i = 1; i < 7; i++ ) {
         if ( ((lastBarRawValue >> i) & 0x01) == 1 ) {
             bitsCounted++;
         }

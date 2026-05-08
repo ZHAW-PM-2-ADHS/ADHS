@@ -215,7 +215,6 @@ int main()
 
     enum DriveState {
         DRIVE_NORMAL,
-        REVERSING,
         STOPPED
     };
 
@@ -389,6 +388,9 @@ int main()
                 starting_cycle_count = 40;
                 skip_line_detection_counter = 0;
 
+                robot_state = PACKAGE_PICKUP;
+                drive_state = DRIVE_NORMAL;
+
                 servo_D0.disable();
                 servo_D1.disable();
             }
@@ -431,12 +433,13 @@ bool pickup_package(Servo &servo_D0, Servo &servo_D1, Servo &servo_D2, const int
 
     switch (state) {
         case INIT:
-            if (move_servo(servo_D0, D0_startPos) && move_servo(servo_D2, D2_closedPos)) {
+            if (move_servo(servo_D0, D0_startPos) && move_servo(servo_D1, D1_retractedPos) &&
+                move_servo(servo_D2, D2_closedPos)) {
                 state = LOWER_ARM;
             }
             break;
         case LOWER_ARM:
-            static int stable_counter = 0;
+            static int lower_arm_stable_counter = 0;
             float package_pos;
             if (color_num == 7 || color_num == 4) {
                 package_pos = D1_highPackagePos;
@@ -444,13 +447,13 @@ bool pickup_package(Servo &servo_D0, Servo &servo_D1, Servo &servo_D2, const int
                 package_pos = D1_lowPackagePos;
             }
             if (move_servo(servo_D1, package_pos)) {
-                stable_counter++;
+                lower_arm_stable_counter++;
             } else {
-                stable_counter = 0;
+                lower_arm_stable_counter = 0;
             }
 
-            if (stable_counter > 10) {
-                stable_counter = 0;
+            if (lower_arm_stable_counter > 10) {
+                lower_arm_stable_counter = 0;
                 state = SLIGHTLY_ROTATE_ARM;
             }
 
@@ -564,14 +567,14 @@ bool place_package(Servo &servo_D0, Servo &servo_D1, Servo &servo_D2, const int 
                 package_pos = D1_lowPackagePos;
             }
 
-            static int store_counter = 0;
+            static int place_package_stable_counter = 0;
             if (move_servo(servo_D1, package_pos)) {
-                store_counter++;
+                place_package_stable_counter++;
             } else {
-                store_counter = 0;
+                place_package_stable_counter = 0;
             }
-            if (store_counter > 10) {
-                store_counter = 0;
+            if (place_package_stable_counter > 10) {
+                place_package_stable_counter = 0;
                 state = OPEN_GRIPPER;
             }
             break;
@@ -584,7 +587,6 @@ bool place_package(Servo &servo_D0, Servo &servo_D1, Servo &servo_D2, const int 
             if (move_servo(servo_D1, D1_retractedPos)) {
                 state = RESET_POSITION;
             }
-            break;
             break;
         case RESET_POSITION:
             servo_D0.setPulseWidth(D0_startPos);

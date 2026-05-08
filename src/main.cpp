@@ -243,8 +243,10 @@ int main()
                     if (sensor_bar_front->isAnyLedActive() || starting_cycle_count > 0) {
                         int crossingLine = 0;
                         if (skip_line_detection_counter > 0) {
+                            servo_D2.setPulseWidth(D2_openPos);
                             skip_line_detection_counter--;
                         } else {
+                            servo_D2.setPulseWidth(D2_closedPos);
                             crossingLine = detectLine(cross_line_sensor);
                         }
 
@@ -363,7 +365,7 @@ int main()
                 sensor_direction = -sensor_direction;
                 sensor_bar_front = &sensor_bar_2;
                 robot_state = PACKAGE_PLACEMENT;
-                skip_line_detection_counter = 220;
+                skip_line_detection_counter = 240;
             } else if (robot_state == PACKAGE_PLACEMENT && packages_on_robot == 0) {
                 // Done with delivery
                 do_execute_main_task = false;

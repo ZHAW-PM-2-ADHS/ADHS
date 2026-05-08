@@ -15,10 +15,11 @@
 #define M_PIf 3.14159265358979323846f // pi
 
 // variable for servo base
+constexpr float D0_movePackagePos = 0.4f;
 constexpr float D0_startPos = 0.45f;      // starting position
 constexpr float D0_redSlotPos = 0.62f;    // red slot position
 constexpr float D0_greenSlotPos = 0.725f; // green slot position
-constexpr float D0_blueSlotPos = 0.845f;  // blue slot position
+constexpr float D0_blueSlotPos = 0.829f;  // blue slot position
 constexpr float D0_yellowSlotPos = 0.935f; // yellow slot position
 
 constexpr float voltage_max = 12.0f; // maximum voltage of battery packs, adjust this to
@@ -34,13 +35,13 @@ constexpr float kn = 140.0f / 12.0f;
 
 // variables for servo arm
 constexpr float D1_retractedPos = 0.6f;    // retracted position
-constexpr float D1_lowPackagePos = 0.87f;  // low package position
-constexpr float D1_highPackagePos = 0.82f; // high package position
-constexpr float D1_storePos = 0.72f;       // position to store the package in the arm
+constexpr float D1_lowPackagePos = 0.91f;  // low package position
+constexpr float D1_highPackagePos = 0.88f; // high package position
+constexpr float D1_storePos = 0.75f;       // position to store the package in the arm
 
 // variables for servo mechanism
 constexpr float D2_openPos = 0.75f;  // start position
-constexpr float D2_closedPos = 1.0f; // end position
+constexpr float D2_closedPos = 0.94f; // end position
 
 // minimal pulse width and maximal pulse width obtained from the servo calibration process
 // reely S0090
@@ -104,6 +105,7 @@ float colorNumToPosition(int color_num);
 bool move_servo();
 
 bool pickup_package(Servo &servo_D0, Servo &servo_D1, Servo &servo_D2, int color_num);
+bool place_package(Servo &servo_D0, Servo &servo_D1, Servo &servo_D2, int color_num);
 
 // main runs as an own thread
 int main()
@@ -163,7 +165,8 @@ int main()
 
     // Pointer to the sensor bar actually being used
     SensorBar *sensor_bar_front = &sensor_bar_1;
-    SensorBar *sensor_bar_back = &sensor_bar_2;
+    SensorBar *cross_line_sensor = &sensor_bar_1;
+    SensorBar *cross_line_check_sensor = &sensor_bar_2; // For checking the other sensor bar for orientation
 
     // angle measured from sensor bar (black line) relative to robot
     float angle{0.0f};
@@ -196,7 +199,6 @@ int main()
     int skip_line_detection_counter = 0;
 
     // Variables to manage robot states outside of cycles
-    bool robot_driving_regularly = true;
     int packages_on_robot = 0;
 
     // values to control the start of the robot
@@ -245,7 +247,7 @@ int main()
                         if (skip_line_detection_counter > 0) {
                             skip_line_detection_counter--;
                         } else {
-                            crossingLine = detectLine(sensor_bar_front);
+                            crossingLine = detectLine(cross_line_sensor);
                         }
 
                         if (crossingLine == 0) {
@@ -269,10 +271,10 @@ int main()
                     break;
                 }
                 case POSSIBLY_ON_LINE: {
-                    int backSensorRaw = sensor_bar_back->getRaw();
+                    int checkSensorRaw = cross_line_check_sensor->getRaw();
                     if (std::find(std::begin(backSensorReadingsToNotStop),
                                   std::end(backSensorReadingsToNotStop),
-                                  backSensorRaw) != std::end(backSensorReadingsToNotStop)) {
+                                  checkSensorRaw) != std::end(backSensorReadingsToNotStop)) {
                         drive_state = DRIVE_NORMAL;
                         break;
                     }
@@ -282,15 +284,15 @@ int main()
                 case STOPPED: {
                     enum StoppedState {
                         MEASURE_COLOR,
-                        REVERSE,
-                        PICKUP,
+                        DRIVE_TO_PACKAGE,
+                        PICKUP_OR_PLACEMENT,
                         RESUME_DRIVING
                     };
 
                     static StoppedState stopped_state = MEASURE_COLOR;
                     static bool does_reverse = false;
 
-                    if (stopped_state != REVERSE) {
+                    if (stopped_state != DRIVE_TO_PACKAGE) {
                         enable_motors = 0;
                     }
 
@@ -300,41 +302,54 @@ int main()
 
                             // "normal" position of the box
                             if (color_num == 3 || color_num == 4) {
-                                stopped_state = PICKUP;
+                                stopped_state = PICKUP_OR_PLACEMENT;
                                 does_reverse = false;
                             } else if (color_num == 5 || color_num == 7) {
                                 // robot has to reverse to the box location first
-                                stopped_state = REVERSE;
-                                does_reverse = true;
+                                stopped_state = DRIVE_TO_PACKAGE;
+                                if (robot_state == PACKAGE_PICKUP) {
+                                    does_reverse = true;
+                                }
                             }
                             break;
-                        case REVERSE: {
+                        case DRIVE_TO_PACKAGE: {
                             static bool initialized = false;
 
                             if (!initialized) {
-                                sensor_direction = -sensor_direction; // flip ONCE
+                                if (robot_state == PACKAGE_PICKUP) {
+                                    sensor_direction = -sensor_direction; // flip ONCE
+                                }
                                 enable_motors = 1;
                                 initialized = true;
                             }
 
-                            bool has_reversed = driveDistance(motor_M1, motor_M2, 0.09);
-
-                            if (has_reversed) {
+                            if (driveDistance(motor_M1, motor_M2, 0.09)) {
                                 initialized = false; // reset for next time
                                 enable_motors = 0;
-                                stopped_state = PICKUP;
+                                stopped_state = PICKUP_OR_PLACEMENT;
                             } else {
                                 driveRobot(motor_M1, motor_M2, sensor_direction, 0, Cwheel2robot, wheel_vel_max, speed);
                             }
 
                             break;
                         }
-                        case PICKUP:
-                            if (pickup_package(servo_D0, servo_D1, servo_D2, color_num)) {
-                                packages_on_robot++;
+                        case PICKUP_OR_PLACEMENT: {
+                            bool done = false;
+                            if (robot_state == PACKAGE_PICKUP) {
+                                done = pickup_package(servo_D0, servo_D1, servo_D2, color_num);
+                            } else {
+                                done = place_package(servo_D0, servo_D1, servo_D2, color_num);
+                            }
+                            if (done) {
+                                if (robot_state == PACKAGE_PICKUP) {
+                                    packages_on_robot++;
+                                } else {
+                                    packages_on_robot--;
+                                }
                                 stopped_state = RESUME_DRIVING;
                             }
                             break;
+                        }
                         case RESUME_DRIVING:
                             drive_state = DRIVE_NORMAL;
                             skip_line_detection_counter = 50;
@@ -353,7 +368,6 @@ int main()
 
             if (robot_state == PACKAGE_PICKUP && packages_on_robot == 4) {
                 sensor_direction = -sensor_direction;
-                sensor_bar_back = &sensor_bar_1;
                 sensor_bar_front = &sensor_bar_2;
                 robot_state = PACKAGE_PLACEMENT;
             }
@@ -406,6 +420,7 @@ bool pickup_package(Servo &servo_D0, Servo &servo_D1, Servo &servo_D2, const int
     enum State {
         INIT,
         LOWER_ARM,
+        SLIGHTLY_ROTATE_ARM,
         LIFT_PACKAGE,
         ROTATE_TO_SLOT,
         STORE_PACKAGE,
@@ -424,7 +439,27 @@ bool pickup_package(Servo &servo_D0, Servo &servo_D1, Servo &servo_D2, const int
             }
             break;
         case LOWER_ARM:
-            if (move_servo(servo_D1, D1_lowPackagePos)) {
+            static int stable_counter = 0;
+            float package_pos;
+            if (color_num == 7 || color_num == 4) {
+                package_pos = D1_highPackagePos;
+            } else {
+                package_pos = D1_lowPackagePos;
+            }
+            if (move_servo(servo_D1, package_pos)) {
+                stable_counter++;
+            } else {
+                stable_counter = 0;
+            }
+
+            if (stable_counter > 10) {
+                stable_counter = 0;
+                state = SLIGHTLY_ROTATE_ARM;
+            }
+
+            break;
+        case SLIGHTLY_ROTATE_ARM:
+            if (move_servo(servo_D0, D0_movePackagePos)) {
                 state = LIFT_PACKAGE;
             }
             break;
@@ -434,12 +469,20 @@ bool pickup_package(Servo &servo_D0, Servo &servo_D1, Servo &servo_D2, const int
             }
             break;
         case ROTATE_TO_SLOT:
-            if (move_servo(servo_D0, colorNumToPosition(color_num))) {
+            if (move_servo(servo_D0, colorNumToPosition(color_num) + 0.03f)) {
                 state = STORE_PACKAGE;
             }
             break;
         case STORE_PACKAGE:
+            static int store_counter = 0;
             if (move_servo(servo_D1, D1_storePos)) {
+                store_counter++;
+            } else {
+                store_counter = 0;
+            }
+
+            if (store_counter > 10) {
+                store_counter = 0;
                 state = OPEN_GRIPPER;
             }
             break;
@@ -450,6 +493,91 @@ bool pickup_package(Servo &servo_D0, Servo &servo_D1, Servo &servo_D2, const int
             break;
         case RETRACT_AFTER_STORING:
             if (move_servo(servo_D1, D1_retractedPos)) {
+                state = RESET_POSITION;
+            }
+            break;
+        case RESET_POSITION:
+            servo_D0.setPulseWidth(D0_startPos);
+            servo_D1.setPulseWidth(D1_retractedPos);
+            servo_D2.setPulseWidth(D2_closedPos);
+            state = INIT;
+            return true;
+    }
+    return false;
+}
+
+bool place_package(Servo &servo_D0, Servo &servo_D1, Servo &servo_D2, const int color_num)
+{
+    enum State {
+        INIT,
+        ROTATE_TO_SLOT,
+        LOWER_ARM,
+        LIFT_PACKAGE,
+        ROTATE_TO_START,
+        PLACE_PACKAGE,
+        OPEN_GRIPPER,
+        RESET_POSITION
+    };
+
+    // This variable persists across cycles
+    static State state = INIT;
+
+    switch (state) {
+        case INIT:
+            if (move_servo(servo_D0, D0_startPos) && move_servo(servo_D1, D1_retractedPos) && move_servo(servo_D2, D2_closedPos)) {
+                state = ROTATE_TO_SLOT;
+            }
+            break;
+        case ROTATE_TO_SLOT:
+            if (move_servo(servo_D0, colorNumToPosition(color_num) + 0.3f)) {
+                state = LOWER_ARM;
+            }
+            break;
+        case LOWER_ARM:
+            static int stable_counter = 0;
+            if (move_servo(servo_D1, D1_storePos)) {
+                stable_counter++;
+            } else {
+                stable_counter = 0;
+            }
+
+            if (stable_counter > 10) {
+                stable_counter = 0;
+                state = LIFT_PACKAGE;
+            }
+
+            break;
+        case LIFT_PACKAGE:
+            if (move_servo(servo_D1, D1_retractedPos)) {
+                state = ROTATE_TO_START;
+            }
+            break;
+        case ROTATE_TO_START:
+            static int store_counter = 0;
+            if (move_servo(servo_D0, D0_startPos)) {
+                state = PLACE_PACKAGE;
+            }
+            break;
+        case PLACE_PACKAGE:
+            float package_pos;
+            if (color_num == 7 || color_num == 4) {
+                package_pos = D1_highPackagePos;
+            } else {
+                package_pos = D1_lowPackagePos;
+            }
+
+            if (move_servo(servo_D1, package_pos)) {
+                stable_counter++;
+            } else {
+                stable_counter = 0;
+            }
+            if (store_counter > 10) {
+                store_counter = 0;
+                state = OPEN_GRIPPER;
+            }
+            break;
+        case OPEN_GRIPPER:
+            if (move_servo(servo_D2, D2_openPos)) {
                 state = RESET_POSITION;
             }
             break;
@@ -574,7 +702,6 @@ bool driveDistance(DCMotor &motor_M1, DCMotor &motor_M2, float distance)
 int detectLine(SensorBar *&sensor_bar)
 {
     float raw = sensor_bar->getRaw();
-    // printf("raw: %f\n", raw);
 
     switch (static_cast<int>(raw)) {
         case 255:

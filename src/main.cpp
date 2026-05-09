@@ -116,8 +116,8 @@ int main()
     // attach button fall function address to user button object
     user_button.fall(&toggle_do_execute_main_fcn);
 
-    Timer main_task_timer;              // create Timer object which we use to run the main task
-                                        // every main_task_period_ms
+    Timer main_task_timer; // create Timer object which we use to run the main task
+                           // every main_task_period_ms
 
     // led on nucleo board
     DigitalOut user_led(LED1);
@@ -139,14 +139,16 @@ int main()
     servo_D2.calibratePulseMinMax(servo_D2_ang_min, servo_D2_ang_max);
 
     // default acceleration of the servo motion profile is 1.0e6f
-    servo_D0.setMaxAcceleration(50.0f);
+    servo_D0.setMaxAcceleration(100.0f);
     servo_D1.setMaxAcceleration(100.0f);
     // servo_D2.setMaxAcceleration(0.7f);
 
     // create object to enable power electronics for the dc motors
     DigitalOut enable_motors(PB_ENABLE_DCMOTORS);
 
-    float speed = 0.5f; // translational speed scaling factor (0.0 to 1.0)
+    constexpr float base_speed = 0.5f;
+    constexpr float high_speed = 0.7f;
+    float speed = base_speed; // translational speed scaling factor (0.0 to 1.0)
 
     // motor M1 and M2, do NOT enable motion planner when used with the LineFollower (disabled per default)
     DCMotor motor_M1(PB_PWM_M1, PB_ENC_A_M1, PB_ENC_B_M1, gear_ratio, kn, voltage_max);
@@ -252,6 +254,11 @@ int main()
                                 starting_cycle_count--;
                             } else {
                                 angle = sensor_direction * sensor_bar_front->getAvgAngleRad();
+                                if (angle > 0.2f || angle < -0.2f) {
+                                    speed = base_speed;
+                                } else {
+                                    speed = high_speed;
+                                }
                             }
                             driveRobot(motor_M1, motor_M2, sensor_direction, angle, Cwheel2robot, wheel_vel_max, speed);
                         } else {
@@ -295,11 +302,11 @@ int main()
                                 stopped_state = DRIVE_TO_PACKAGE;
                                 if (robot_state == PACKAGE_PICKUP) {
                                     // Drives backwards to package
-                                    skip_line_detection_counter = 50 * cycle_counter_multiplier;
+                                    skip_line_detection_counter = 40 * cycle_counter_multiplier * (speed / base_speed);
                                     does_reverse = true;
                                 } else {
                                     // Drives forwards to package
-                                    skip_line_detection_counter = 10 * cycle_counter_multiplier;
+                                    skip_line_detection_counter = 7 * cycle_counter_multiplier * (speed / base_speed);
                                 }
                             }
                             break;
@@ -360,7 +367,7 @@ int main()
                 sensor_direction = -sensor_direction;
                 sensor_bar_front = &sensor_bar_2;
                 robot_state = PACKAGE_PLACEMENT;
-                skip_line_detection_counter = 240 * cycle_counter_multiplier;
+                skip_line_detection_counter = 170 * cycle_counter_multiplier * (speed / base_speed);
             } else if (robot_state == PACKAGE_PLACEMENT && packages_on_robot == 0) {
                 // Done with delivery
                 do_execute_main_task = false;
@@ -665,8 +672,8 @@ void driveRobot(DCMotor &motor_M1,
     // frequency-independent steering filter
     static float angle_filtered = 0.0f;
     constexpr float steering_filter_tau_ms = 60.0f;
-    const float alpha = static_cast<float>(main_task_period_ms) /
-                        (steering_filter_tau_ms + static_cast<float>(main_task_period_ms));
+    const float alpha =
+        static_cast<float>(main_task_period_ms) / (steering_filter_tau_ms + static_cast<float>(main_task_period_ms));
 
     angle_filtered = (1.0f - alpha) * angle_filtered + alpha * angle;
 
@@ -688,11 +695,11 @@ void driveRobot(DCMotor &motor_M1,
     constexpr float accel_tau_slow_ms = 180.0f;
     constexpr float accel_tau_fast_ms = 60.0f;
 
-    const float accel_alpha_slow = static_cast<float>(main_task_period_ms) /
-                                   (accel_tau_slow_ms + static_cast<float>(main_task_period_ms));
+    const float accel_alpha_slow =
+        static_cast<float>(main_task_period_ms) / (accel_tau_slow_ms + static_cast<float>(main_task_period_ms));
 
-    const float accel_alpha_fast = static_cast<float>(main_task_period_ms) /
-                                   (accel_tau_fast_ms + static_cast<float>(main_task_period_ms));
+    const float accel_alpha_fast =
+        static_cast<float>(main_task_period_ms) / (accel_tau_fast_ms + static_cast<float>(main_task_period_ms));
 
     float accel_alpha = (fabs(diff) < 0.1f) ? accel_alpha_fast : accel_alpha_slow;
 

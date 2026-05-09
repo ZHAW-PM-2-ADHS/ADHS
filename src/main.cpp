@@ -14,6 +14,9 @@
 
 #define M_PIf 3.14159265358979323846f // pi
 
+constexpr int main_task_period_ms = 1;
+constexpr int cycle_counter_multiplier = 20.0f / main_task_period_ms;
+
 // variable for servo base
 constexpr float D0_movePackagePos = 0.4f;
 constexpr float D0_startPos = 0.46f;       // starting position
@@ -41,7 +44,7 @@ constexpr float D1_storePos = 0.77f;       // position to store the package in t
 
 // variables for servo mechanism
 constexpr float D2_openPos = 0.75f;   // start position
-constexpr float D2_closedPos = 0.93f; // end position
+constexpr float D2_closedPos = 0.95f; // end position
 
 // minimal pulse width and maximal pulse width obtained from the servo calibration process
 // reely S0090
@@ -113,10 +116,6 @@ int main()
     // attach button fall function address to user button object
     user_button.fall(&toggle_do_execute_main_fcn);
 
-    // while loop gets executed every main_task_period_ms milliseconds, this is a
-    // simple approach to repeatedly execute main
-    const int main_task_period_ms = 20; // define main task period time in ms e.g. 20 ms, therefore
-                                        // the main task will run 50 times per second
     Timer main_task_timer;              // create Timer object which we use to run the main task
                                         // every main_task_period_ms
 
@@ -140,9 +139,9 @@ int main()
     servo_D2.calibratePulseMinMax(servo_D2_ang_min, servo_D2_ang_max);
 
     // default acceleration of the servo motion profile is 1.0e6f
-    servo_D0.setMaxAcceleration(0.7f);
-    servo_D1.setMaxAcceleration(0.7f);
-    servo_D2.setMaxAcceleration(0.7f);
+    servo_D0.setMaxAcceleration(50.0f);
+    servo_D1.setMaxAcceleration(100.0f);
+    // servo_D2.setMaxAcceleration(0.7f);
 
     // create object to enable power electronics for the dc motors
     DigitalOut enable_motors(PB_ENABLE_DCMOTORS);
@@ -166,7 +165,6 @@ int main()
     // Pointer to the sensor bar actually being used
     SensorBar *sensor_bar_front = &sensor_bar_1;
     SensorBar *cross_line_sensor = &sensor_bar_1;
-    SensorBar *cross_line_check_sensor = &sensor_bar_2; // For checking the other sensor bar for orientation
 
     // angle measured from sensor bar (black line) relative to robot
     float angle{0.0f};
@@ -202,11 +200,8 @@ int main()
     int packages_on_robot = 0;
 
     // values to control the start of the robot
-    constexpr float starting_angle = -0.2;
-    int starting_cycle_count = 40;
-
-    // Specific line follower readings (at the back) that help avoiding a stop at the crossing to the warehouse
-    constexpr int backSensorReadingsToNotStop[] = {1, 3, 7, 12, 14, 15, 48, 96, 112, 128, 192, 224, 240};
+    constexpr float starting_angle = -0.25;
+    int starting_cycle_count = 40 * cycle_counter_multiplier;
 
     enum RobotState {
         PACKAGE_PICKUP,
@@ -232,7 +227,7 @@ int main()
         if (do_execute_main_task) {
 
             // Moving the Servo to a position on the top if it has just started (only the first cycle)
-            if (starting_cycle_count == 40) {
+            if (starting_cycle_count == 40 * cycle_counter_multiplier) {
                 servo_D0.enable(D0_startPos);
                 servo_D1.enable(D1_retractedPos);
                 servo_D2.enable(D2_openPos);
@@ -282,14 +277,14 @@ int main()
                     static bool does_reverse = false;
 
                     if (stopped_state != DRIVE_TO_PACKAGE) {
-                        enable_motors = 0;
+                        // enable_motors = 0;
                     }
 
                     switch (stopped_state) {
                         case MEASURE_COLOR:
                             does_reverse = false;
                             measureColor(Color_Sensor, color_raw_Hz, color_avg_Hz, color_cal, color_num, color_string);
-                            skip_line_detection_counter = 25;
+                            skip_line_detection_counter = 25 * cycle_counter_multiplier;
 
                             // "normal" position of the box
                             if (color_num == 3 || color_num == 4) {
@@ -300,11 +295,11 @@ int main()
                                 stopped_state = DRIVE_TO_PACKAGE;
                                 if (robot_state == PACKAGE_PICKUP) {
                                     // Drives backwards to package
-                                    skip_line_detection_counter = 50;
+                                    skip_line_detection_counter = 50 * cycle_counter_multiplier;
                                     does_reverse = true;
                                 } else {
                                     // Drives forwards to package
-                                    skip_line_detection_counter = 10;
+                                    skip_line_detection_counter = 10 * cycle_counter_multiplier;
                                 }
                             }
                             break;
@@ -315,13 +310,13 @@ int main()
                                 if (robot_state == PACKAGE_PICKUP) {
                                     sensor_direction = -sensor_direction; // flip ONCE
                                 }
-                                enable_motors = 1;
+                                // enable_motors = 1;
                                 initialized = true;
                             }
 
-                            if (driveDistance(motor_M1, motor_M2, 0.09)) {
+                            if (driveDistance(motor_M1, motor_M2, 0.11)) {
                                 initialized = false; // reset for next time
-                                enable_motors = 0;
+                                // enable_motors = 0;
                                 stopped_state = PICKUP_OR_PLACEMENT;
                             } else {
                                 driveRobot(motor_M1, motor_M2, sensor_direction, 0, Cwheel2robot, wheel_vel_max, speed);
@@ -365,7 +360,7 @@ int main()
                 sensor_direction = -sensor_direction;
                 sensor_bar_front = &sensor_bar_2;
                 robot_state = PACKAGE_PLACEMENT;
-                skip_line_detection_counter = 240;
+                skip_line_detection_counter = 240 * cycle_counter_multiplier;
             } else if (robot_state == PACKAGE_PLACEMENT && packages_on_robot == 0) {
                 // Done with delivery
                 do_execute_main_task = false;
@@ -387,8 +382,8 @@ int main()
                 color_num = 0;
                 color_string = nullptr;
 
-                enable_motors = 0;
-                starting_cycle_count = 40;
+                // enable_motors = 0;
+                starting_cycle_count = 40 * cycle_counter_multiplier;
                 skip_line_detection_counter = 0;
 
                 robot_state = PACKAGE_PICKUP;
@@ -404,9 +399,11 @@ int main()
 
         // read timer and make the main thread sleep for the remaining time span (non blocking)
         const long long main_task_elapsed_time_ms = duration_cast<milliseconds>(main_task_timer.elapsed_time()).count();
+        // const int main_task_duration_us = duration_cast<microseconds>(main_task_timer.elapsed_time()).count();
         if (main_task_period_ms - main_task_elapsed_time_ms < 0)
             printf("Warning: Main task took longer than main_task_period_ms\n");
         else
+            // printf("main task duration in microseconds: %d\n", main_task_duration_us);
             thread_sleep_for(main_task_period_ms - main_task_elapsed_time_ms);
     }
 }
@@ -455,7 +452,7 @@ bool pickup_package(Servo &servo_D0, Servo &servo_D1, Servo &servo_D2, const int
                 lower_arm_stable_counter = 0;
             }
 
-            if (lower_arm_stable_counter > 10) {
+            if (lower_arm_stable_counter > 10 * cycle_counter_multiplier) {
                 lower_arm_stable_counter = 0;
                 state = SLIGHTLY_ROTATE_ARM;
             }
@@ -467,12 +464,28 @@ bool pickup_package(Servo &servo_D0, Servo &servo_D1, Servo &servo_D2, const int
             }
             break;
         case LIFT_PACKAGE:
+            static int lift_package_stable_counter = 0;
             if (move_servo(servo_D1, D1_retractedPos)) {
+                lift_package_stable_counter++;
+            } else {
+                lift_package_stable_counter = 0;
+            }
+
+            if (lift_package_stable_counter > 10 * cycle_counter_multiplier) {
+                lift_package_stable_counter = 0;
                 state = ROTATE_TO_SLOT;
             }
             break;
         case ROTATE_TO_SLOT:
+            static int rotate_to_slot_stable_counter = 0;
             if (move_servo(servo_D0, colorNumToPosition(color_num) + 0.03f)) {
+                rotate_to_slot_stable_counter++;
+            } else {
+                rotate_to_slot_stable_counter = 0;
+            }
+
+            if (rotate_to_slot_stable_counter > 10 * cycle_counter_multiplier) {
+                rotate_to_slot_stable_counter = 0;
                 state = STORE_PACKAGE;
             }
             break;
@@ -484,7 +497,7 @@ bool pickup_package(Servo &servo_D0, Servo &servo_D1, Servo &servo_D2, const int
                 store_counter = 0;
             }
 
-            if (store_counter > 10) {
+            if (store_counter > 10 * cycle_counter_multiplier) {
                 store_counter = 0;
                 state = OPEN_GRIPPER;
             }
@@ -546,7 +559,7 @@ bool place_package(Servo &servo_D0, Servo &servo_D1, Servo &servo_D2, const int 
                 stable_counter = 0;
             }
 
-            if (stable_counter > 10) {
+            if (stable_counter > 10 * cycle_counter_multiplier) {
                 stable_counter = 0;
                 state = LIFT_PACKAGE;
             }
@@ -576,7 +589,7 @@ bool place_package(Servo &servo_D0, Servo &servo_D1, Servo &servo_D2, const int 
             } else {
                 place_package_stable_counter = 0;
             }
-            if (place_package_stable_counter > 10) {
+            if (place_package_stable_counter > 10 * cycle_counter_multiplier) {
                 place_package_stable_counter = 0;
                 state = OPEN_GRIPPER;
             }
@@ -621,9 +634,12 @@ void driveRobot(DCMotor &motor_M1,
     // Proportional gain for steering [1/s]
     constexpr float Kp{5.0f};
 
-    // smoothing + softer response for small angles
+    // frequency-independent steering filter
     static float angle_filtered = 0.0f;
-    const float alpha = 0.3f; // low-pass filter factor (smaller = smoother)
+    constexpr float steering_filter_tau_ms = 60.0f;
+    const float alpha = static_cast<float>(main_task_period_ms) /
+                        (steering_filter_tau_ms + static_cast<float>(main_task_period_ms));
+
     angle_filtered = (1.0f - alpha) * angle_filtered + alpha * angle;
 
     float abs_angle = fabs(angle_filtered);
@@ -640,8 +656,15 @@ void driveRobot(DCMotor &motor_M1,
     // faster convergence when close to target speed
     float diff = speed - speed_filtered;
 
-    const float accel_alpha_slow = 0.1f; // smooth start
-    const float accel_alpha_fast = 0.3f; // faster convergence
+    // frequency-independent acceleration smoothing
+    constexpr float accel_tau_slow_ms = 180.0f;
+    constexpr float accel_tau_fast_ms = 60.0f;
+
+    const float accel_alpha_slow = static_cast<float>(main_task_period_ms) /
+                                   (accel_tau_slow_ms + static_cast<float>(main_task_period_ms));
+
+    const float accel_alpha_fast = static_cast<float>(main_task_period_ms) /
+                                   (accel_tau_fast_ms + static_cast<float>(main_task_period_ms));
 
     float accel_alpha = (fabs(diff) < 0.1f) ? accel_alpha_fast : accel_alpha_slow;
 

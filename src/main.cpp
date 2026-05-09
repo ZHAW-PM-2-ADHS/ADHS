@@ -18,7 +18,7 @@ constexpr int main_task_period_ms = 1;
 constexpr int cycle_counter_multiplier = 20.0f / main_task_period_ms;
 
 // variable for servo base
-constexpr float D0_movePackagePos = 0.4f;
+constexpr float D0_movePackagePos = 0.43f;
 constexpr float D0_startPos = 0.46f;       // starting position
 constexpr float D0_redSlotPos = 0.62f;     // red slot position
 constexpr float D0_greenSlotPos = 0.725f;  // green slot position
@@ -139,15 +139,15 @@ int main()
     servo_D2.calibratePulseMinMax(servo_D2_ang_min, servo_D2_ang_max);
 
     // default acceleration of the servo motion profile is 1.0e6f
-    servo_D0.setMaxAcceleration(100.0f);
-    servo_D1.setMaxAcceleration(100.0f);
-    // servo_D2.setMaxAcceleration(0.7f);
+    servo_D0.setMaxAcceleration(150.0f);
+    servo_D1.setMaxAcceleration(150.0f);
 
     // create object to enable power electronics for the dc motors
     DigitalOut enable_motors(PB_ENABLE_DCMOTORS);
 
     constexpr float base_speed = 0.5f;
     constexpr float high_speed = 0.7f;
+    constexpr float overdrive_speed = 1.2f;
     float speed = base_speed; // translational speed scaling factor (0.0 to 1.0)
 
     // motor M1 and M2, do NOT enable motion planner when used with the LineFollower (disabled per default)
@@ -283,10 +283,6 @@ int main()
                     static StoppedState stopped_state = MEASURE_COLOR;
                     static bool does_reverse = false;
 
-                    if (stopped_state != DRIVE_TO_PACKAGE) {
-                        // enable_motors = 0;
-                    }
-
                     switch (stopped_state) {
                         case MEASURE_COLOR:
                             does_reverse = false;
@@ -317,13 +313,11 @@ int main()
                                 if (robot_state == PACKAGE_PICKUP) {
                                     sensor_direction = -sensor_direction; // flip ONCE
                                 }
-                                // enable_motors = 1;
                                 initialized = true;
                             }
 
                             if (driveDistance(motor_M1, motor_M2, 0.11)) {
                                 initialized = false; // reset for next time
-                                // enable_motors = 0;
                                 stopped_state = PICKUP_OR_PLACEMENT;
                             } else {
                                 driveRobot(motor_M1, motor_M2, sensor_direction, 0, Cwheel2robot, wheel_vel_max, speed);
@@ -368,6 +362,7 @@ int main()
                 sensor_bar_front = &sensor_bar_2;
                 robot_state = PACKAGE_PLACEMENT;
                 skip_line_detection_counter = 170 * cycle_counter_multiplier * (speed / base_speed);
+                speed = overdrive_speed;
             } else if (robot_state == PACKAGE_PLACEMENT && packages_on_robot == 0) {
                 // Done with delivery
                 do_execute_main_task = false;
@@ -389,7 +384,6 @@ int main()
                 color_num = 0;
                 color_string = nullptr;
 
-                // enable_motors = 0;
                 starting_cycle_count = 40 * cycle_counter_multiplier;
                 skip_line_detection_counter = 0;
 

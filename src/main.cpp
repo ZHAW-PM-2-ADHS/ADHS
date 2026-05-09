@@ -547,7 +547,14 @@ bool place_package(Servo &servo_D0, Servo &servo_D1, Servo &servo_D2, const int 
             }
             break;
         case ROTATE_TO_SLOT:
+            static int rotate_to_slot_stable_counter = 0;
             if (move_servo(servo_D0, colorNumToPosition(color_num) + 0.03f)) {
+                rotate_to_slot_stable_counter++;
+            } else {
+                rotate_to_slot_stable_counter = 0;
+            }
+            if (rotate_to_slot_stable_counter > 10 * cycle_counter_multiplier) {
+                rotate_to_slot_stable_counter = 0;
                 state = LOWER_ARM;
             }
             break;
@@ -566,13 +573,27 @@ bool place_package(Servo &servo_D0, Servo &servo_D1, Servo &servo_D2, const int 
 
             break;
         case LIFT_PACKAGE:
+            static int lift_package_stable_counter = 0;
             if (move_servo(servo_D1, D1_retractedPos)) {
+                lift_package_stable_counter++;
+            } else {
+                lift_package_stable_counter = 0;
+            }
+            if (lift_package_stable_counter > 10 * cycle_counter_multiplier) {
                 state = ROTATE_TO_START;
+                lift_package_stable_counter = 0;
             }
             break;
         case ROTATE_TO_START:
+            static int rotate_to_start_stable_counter = 0;
             if (move_servo(servo_D0, D0_startPos)) {
+                rotate_to_slot_stable_counter++;
+            } else {
+                rotate_to_slot_stable_counter = 0;
+            }
+            if (rotate_to_slot_stable_counter > 10 * cycle_counter_multiplier) {
                 state = PLACE_PACKAGE;
+                rotate_to_start_stable_counter = 0;
             }
             break;
         case PLACE_PACKAGE:
@@ -600,7 +621,14 @@ bool place_package(Servo &servo_D0, Servo &servo_D1, Servo &servo_D2, const int 
             }
             break;
         case RETRACT:
+            static int retract_stable_counter = 0;
             if (move_servo(servo_D1, D1_retractedPos)) {
+                retract_stable_counter++;
+            } else {
+                retract_stable_counter = 0;
+            }
+            if (retract_stable_counter > 10 * cycle_counter_multiplier) {
+                retract_stable_counter = 0;
                 state = RESET_POSITION;
             }
             break;
